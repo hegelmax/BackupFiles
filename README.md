@@ -137,6 +137,38 @@ Expand-Archive -Path "backup.zip" -DestinationPath "folder"
 
 ---
 
+## 🖼️ Examples
+
+### 🔸 Comparing Two Backups
+You can easily compare different versions of backups in a diff tool such as *WinMerge*, *Notepad++* or *Beyond Compare*  
+— perfect for seeing file and structure changes without using Git.
+
+![Backup comparison example](img/backup_comparison_example.jpg)
+
+---
+
+### 🔸 Backup Storage Examples
+Backups are stored as plain text `.bak.txt` files and optionally compressed into `.zip` archives.
+
+![Backup files list](img/backup_files_list.jpg)
+
+---
+
+### 🔸 Project Restoration
+You can restore an entire project structure (files and directories) directly from `.bak.txt` or `.zip`.  
+Below are three stages of restoration:
+
+1. Launching BackupFiles and selecting the archive  
+   ![Open with BackupFiles](img/open_with_backup_files.jpg)
+
+2. Console output during extraction and file creation  
+   ![Restoration process in console](img/restoration_process_in_console.jpg)
+
+3. Fully restored project structure in Windows Explorer  
+   ![Restored project folder view](img/restored_project_folder_view.jpg)
+
+---
+
 ## 🧑‍💻 Author
 
 **Maxim Hegel © 2025**  
