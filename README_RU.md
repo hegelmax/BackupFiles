@@ -47,7 +47,7 @@ BackupFiles/
   <build_target>exe</build_target>
 
   <lib_folders>lib,src</lib_folders>
-  <icon_file_path>.es\icon.ico</icon_file_path>
+  <icon_file_path>.\res\icon.ico</icon_file_path>
 
   <release_version>24</release_version>
   <build_version>24</build_version>
