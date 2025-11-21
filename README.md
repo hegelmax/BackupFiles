@@ -1,62 +1,48 @@
-# 🗃️ BackupFiles
+# 🗃️ BackupFiles  
+**BackupFiles** is a C# console tool for creating structured backups of project files and restoring them from `.bak.txt` or `.zip`.
 
-**BackupFiles** is a simple C# console application designed to create backups of project source files.  
-It collects all files with the specified extensions from defined directories, generates a single text backup file containing the entire project structure, and optionally compresses the result into a ZIP archive.
+It scans directories, filters files by extensions and wildcard rules, builds a complete tree of the project, and optionally compresses the result.  
+Supports alternative configs via drag & drop.
 
 ---
 
 ## 🚀 Features
 
-- 🔍 Scans files by specified extensions  
-- 📁 Supports include/exclude path filters  
-- 🧩 Generates a tree view of folder structure  
-- 🧾 Saves all file contents into a `.bak.txt` file  
-- 🗜️ Optional ZIP compression of the result  
+- 🔍 File scanning by extensions  
+- 📁 Include/Exclude path filtering  
+- ✨ Wildcard support (`*.min.js`, `*/node_modules/*`, etc.)  
+- ❗ Forced include files via `!` (ignore exclude rules)  
+- 🧩 Generated project tree structure  
+- 🧾 Saves all file contents into `.bak.txt`  
+- 🗜️ Optional ZIP compression  
 - 🔄 Automatic version increment after backup  
-- 🧰 Can restore the entire project from a `.bak.txt` file
-
----
-
-## 🏗️ Project Structure
-
-```
-BackupFiles/
-├── app.config
-├── app.version.cs
-└── src/
-    ├── classes.cs
-    └── Main.cs
-```
+- ♻️ Restore from `.bak.txt` or `.zip`  
+- 🧰 Multiple configurations:
+  - No arguments → use default `backup.config.xml`
+  - Drag & drop XML → use that config
 
 ---
 
 ## ⚙️ Configuration
 
-Main parameters are defined in **`app.config`**.
+If `backup.config.xml` does not exist, the application generates a template with a detailed instruction block:
 
 ```xml
-<configuration>
-  <company_name>LEMEX</company_name>
-  <project_name>BackupFiles</project_name>
-  <project_title>Backup Files</project_title>
-  <description>Simple Backup of Project Files</description>
-
-  <major_version>1</major_version>
-  <minor_version>0</minor_version>
-  <build_configuration>Release</build_configuration>
-  <build_target>exe</build_target>
-
-  <lib_folders>lib,src</lib_folders>
-  <icon_file_path>.\res\icon.ico</icon_file_path>
-
-  <release_version>24</release_version>
-  <build_version>24</build_version>
-</configuration>
+<!-- HOW TO USE THIS FILE
+1. This file defines which files and folders will be included in your backup.
+2. IncludePaths – folders scanned recursively.
+3. IncludeFiles – specific files added manually.
+   - If a file ends with "!", it ignores ExcludePaths and will ALWAYS be included.
+4. ExcludePaths – wildcard patterns for files/folders to exclude.
+5. Extensions – allowed file formats.
+6. ResultPath – folder where backups will be saved.
+7. ResultFilenameMask – pattern used to build the backup filename.
+8. IsExample=1 disables work. Set it to 0 before using.
+9. To use this config, drag & drop it onto the BackupFiles.exe application.
+END OF INSTRUCTIONS -->
 ```
 
-### 🔧 User Configuration File `backup.config.xml`
-
-Example of the auto-generated configuration file template (created on first launch):
+### Example:
 
 ```xml
 <configuration>
@@ -64,19 +50,29 @@ Example of the auto-generated configuration file template (created on first laun
   <Version>1.0.0</Version>
 
   <extensions>
-    <extension>.config</extension>
+    <extension>.js</extension>
+    <extension>.ts</extension>
+    <extension>.css</extension>
     <extension>.cs</extension>
   </extensions>
 
   <includePaths>
-    <includePath>./include</includePath>
+    <includePath>./src</includePath>
+    <includePath>./wwwroot</includePath>
   </includePaths>
 
+  <includeFiles>
+    <includeFile>./backup.web.config.xml</includeFile>
+    <includeFile>./backup.api.config.xml !</includeFile>
+  </includeFiles>
+
   <excludePaths>
-    <excludePath>./exclude</excludePath>
+    <excludePath>*/node_modules/*</excludePath>
+    <excludePath>*.min.js</excludePath>
+    <excludePath>./backup.*.config.xml</excludePath>
   </excludePaths>
 
-  <ResultPath>./output</ResultPath>
+  <ResultPath>./backup</ResultPath>
   <ResultFilenameMask>@PROJECTNAME_@VER_#YYYYMMDDhhmmss#.bak.txt</ResultFilenameMask>
 
   <EnableZip>true</EnableZip>
@@ -90,90 +86,60 @@ Example of the auto-generated configuration file template (created on first laun
 
 ## 💡 Usage
 
-### 1️⃣ Create a Backup
-1. Make sure `backup.config.xml` is properly configured.  
-2. Run the program **without arguments**:
-   ```bash
-   BackupFiles.exe
-   ```
-3. The application will generate a backup file in the configured output folder (`ResultPath`).
+### 📌 Create Backup  
+Run:
 
-### 2️⃣ Restore a Project from `.bak.txt`
-1. Run the program **with the backup file as argument**:
-   ```bash
-   BackupFiles.exe MyBackup_1.0.0_20251011.bak.txt
-   ```
-2. The program will restore the full project structure in a new folder with the same name as the backup file.
+```bash
+BackupFiles.exe
+```
+
+Uses default config.
+
+### 📌 Use Alternate Config  
+Drag & drop any `.xml` file onto the executable.
+
+### 📌 Restore Project
+
+```bash
+BackupFiles.exe MyBackup_1.0.7_20251011104647.bak.txt
+```
+
+or ZIP:
+
+```bash
+BackupFiles.exe MyBackup.zip
+```
 
 ---
 
-## 🧮 Backup Filename Format
-
-The backup file name is generated based on the mask in the config:
+## 🧮 Filename Mask
 
 ```
 @PROJECTNAME_@VER_#YYYYMMDDhhmmss#.bak.txt
 ```
 
-Example output:
+Example:
+
 ```
-BackupFiles_1.0.7_20251011104647.bak.txt
+MyProject_1.0.7_20251011104647.bak.txt
 ```
 
 ---
 
-## 🪄 PowerShell Commands for Archiving
+## 🪄 PowerShell Commands
 
-If `EnableZip = true` is enabled, the following commands are used internally:
-
-To zip:
 ```powershell
-Compress-Archive -Path "sourcefile" -DestinationPath "destination.zip"
-```
-To unzip:
-```powershell
+Compress-Archive -Path "source" -DestinationPath "result.zip"
 Expand-Archive -Path "backup.zip" -DestinationPath "folder"
 ```
-
----
-
-## 🖼️ Examples
-
-### 🔸 Comparing Two Backups
-You can easily compare different versions of backups in a diff tool such as *WinMerge*, *Notepad++* or *Beyond Compare*  
-— perfect for seeing file and structure changes without using Git.
-
-![Backup comparison example](img/backup_comparison_example.jpg)
-
----
-
-### 🔸 Backup Storage Examples
-Backups are stored as plain text `.bak.txt` files and optionally compressed into `.zip` archives.
-
-![Backup files list](img/backup_files_list.jpg)
-
----
-
-### 🔸 Project Restoration
-You can restore an entire project structure (files and directories) directly from `.bak.txt` or `.zip`.  
-Below are three stages of restoration:
-
-1. Launching BackupFiles and selecting the archive  
-   ![Open with BackupFiles](img/open_with_backup_files.jpg)
-
-2. Console output during extraction and file creation  
-   ![Restoration process in console](img/restoration_process_in_console.jpg)
-
-3. Fully restored project structure in Windows Explorer  
-   ![Restored project folder view](img/restored_project_folder_view.jpg)
 
 ---
 
 ## 🧑‍💻 Author
 
 **Maxim Hegel © 2025**  
-📧 [i@hgl.mx](mailto:i@hgl.mx)  
-🔗 [LinkedIn](https://www.linkedin.com/in/maximhegel)
+📧 i@hgl.mx  
+🔗 linkedin.com/in/maximhegel
 
 ---
 
