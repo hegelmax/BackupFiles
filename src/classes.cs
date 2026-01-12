@@ -11,15 +11,15 @@ namespace BackupFiles
 
 		[XmlArray("extensions")]
 		[XmlArrayItem("extension")]
-		public List<string> Extensions { get; set; }
+		public List<ConfigItem> Extensions { get; set; }
 
 		[XmlArray("includePaths")]
 		[XmlArrayItem("includePath")]
-		public List<string> IncludePaths { get; set; }
+		public List<ConfigItem> IncludePaths { get; set; }
 
 		[XmlArray("includeFiles")]
 		[XmlArrayItem("includeFile")]
-		public List<string> IncludeFiles { get; set; }
+		public List<ConfigItem> IncludeFiles { get; set; }
 
 		[XmlArray("excludePaths")]
 		[XmlArrayItem("excludePath")]
@@ -32,5 +32,14 @@ namespace BackupFiles
 		public bool DeleteUnziped { get; set; }
 		
 		public int IsExample { get; set; }
+	}
+	
+	public class ConfigItem
+	{
+		[XmlText]
+		public string Value { get; set; }
+		
+		[XmlAttribute("tree_only")]
+		public bool TreeOnly { get; set; }
 	}
 }

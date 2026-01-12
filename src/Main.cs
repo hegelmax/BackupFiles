@@ -16,6 +16,11 @@ namespace BackupFiles
 		public bool IsCollapsible;
 	}
 	
+	class FileEntry {
+		public string Path;
+		public bool TreeOnly;
+	}
+	
 	class Program
 	{
 		static void Main(string[] args) {
@@ -100,7 +105,7 @@ namespace BackupFiles
 			}
 			
 			// Collect files
-			List<string> files;
+			List<FileEntry> files;
 			try {
 				files = GetFiles(config, rootFolder);
 			}
@@ -231,9 +236,53 @@ namespace BackupFiles
 			var config = new Config {
 				ProjectName = "MyProject",
 				Version = "1.0.0",
-				Extensions = new List<string> { ".txt", ".config", ".md", ".webmanifest", ".htaccess", ".json", ".xml", ".csv", ".html", ".js", ".ts", ".tsx", ".php", ".css", ".scss", ".less", ".py", ".cs", ".asp", ".rb" },
-				IncludePaths = new List<string> { "./public", "./src", "./lib", "./assets" },
-				IncludeFiles = new List<string> { "./backup.config.xml", "./backup.web.config.xml !" },
+				Extensions = new List<ConfigItem> {
+					new ConfigItem { Value = ".txt" },
+					new ConfigItem { Value = ".config" },
+					new ConfigItem { Value = ".md" },
+					new ConfigItem { Value = ".webmanifest" },
+					new ConfigItem { Value = ".htaccess" },
+					new ConfigItem { Value = ".json" },
+					new ConfigItem { Value = ".xml" },
+					new ConfigItem { Value = ".yaml" },
+					new ConfigItem { Value = ".csv" },
+					new ConfigItem { Value = ".html" },
+					new ConfigItem { Value = ".js" },
+					new ConfigItem { Value = ".ts" },
+					new ConfigItem { Value = ".tsx" },
+					new ConfigItem { Value = ".php" },
+					new ConfigItem { Value = ".css" },
+					new ConfigItem { Value = ".scss" },
+					new ConfigItem { Value = ".less" },
+					new ConfigItem { Value = ".py" },
+					new ConfigItem { Value = ".cs" },
+					new ConfigItem { Value = ".asp" },
+					new ConfigItem { Value = ".rb" },
+					new ConfigItem { Value = ".dll", TreeOnly = true },
+					new ConfigItem { Value = ".exe", TreeOnly = true },
+					new ConfigItem { Value = ".jpg", TreeOnly = true },
+					new ConfigItem { Value = ".jpeg", TreeOnly = true },
+					new ConfigItem { Value = ".svg", TreeOnly = true },
+					new ConfigItem { Value = ".png", TreeOnly = true },
+					new ConfigItem { Value = ".webp", TreeOnly = true },
+					new ConfigItem { Value = ".ico", TreeOnly = true },
+					new ConfigItem { Value = ".db", TreeOnly = true },
+					new ConfigItem { Value = ".sqlite", TreeOnly = true },
+					new ConfigItem { Value = ".env", TreeOnly = true }
+				},
+				IncludePaths = new List<ConfigItem> {
+					new ConfigItem { Value = "./public" },
+					new ConfigItem { Value = "./src" },
+					new ConfigItem { Value = "./lib" },
+					new ConfigItem { Value = "./assets" },
+					new ConfigItem { Value = "*/res", TreeOnly = true },
+					new ConfigItem { Value = "*/bin", TreeOnly = true },
+					new ConfigItem { Value = "*/img", TreeOnly = true }
+				},
+				IncludeFiles = new List<ConfigItem> {
+					new ConfigItem { Value = "./backup.config.xml" },
+					new ConfigItem { Value = "./backup.web.config.xml !" }
+				},
 				ExcludePaths = new List<string> { "./backup", "./archive", "*/node_modules", "*/vendor", "./bin", "./backup.*.config.xml", "*.min.js" },
 				ResultPath = "./backup",
 				ResultFilenameMask = "@PROJECTNAME_@VER_#YYYYMMDDhhmmss#.bak.txt",
@@ -296,11 +345,32 @@ END OF INSTRUCTIONS");
 			}
 		}
 		
-		static List<string> GetFiles(Config config, string rootFolder) {
-			var files = new List<string>();
+		static List<FileEntry> GetFiles(Config config, string rootFolder) {
+			var files = new List<FileEntry>();
+			
+			var extensionTreeOnlyMap = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+			foreach (var extItem in config.Extensions ?? new List<ConfigItem>()) {
+				string extValue = extItem == null ? null : extItem.Value;
+				if (string.IsNullOrWhiteSpace(extValue)) {
+					continue;
+				}
+				
+				bool existing;
+				if (extensionTreeOnlyMap.TryGetValue(extValue, out existing)) {
+					extensionTreeOnlyMap[extValue] = existing || extItem.TreeOnly;
+				}
+				else {
+					extensionTreeOnlyMap[extValue] = extItem.TreeOnly;
+				}
+			}
 			
 			// === 1. INCLUDE PATHS ===
-			foreach (string includePath in config.IncludePaths) {
+			foreach (var includePathItem in config.IncludePaths ?? new List<ConfigItem>()) {
+				string includePath = includePathItem == null ? null : includePathItem.Value;
+				if (string.IsNullOrWhiteSpace(includePath)) {
+					continue;
+				}
+				
 				string fullPath = Path.Combine(rootFolder, includePath);
 				
 				if (!Directory.Exists(fullPath)) {
@@ -309,20 +379,30 @@ END OF INSTRUCTIONS");
 				}
 				
 				var includedFiles = Directory.GetFiles(fullPath, "*.*", SearchOption.AllDirectories)
-					.Where(file => config.Extensions.Contains(Path.GetExtension(file)))
+					.Where(file => extensionTreeOnlyMap.ContainsKey(Path.GetExtension(file)))
 					.Where(file => !IsFileExcluded(file, rootFolder, config.ExcludePaths))
 					.ToList();
 				
-				files.AddRange(includedFiles);
+				foreach (var file in includedFiles) {
+					string extension = Path.GetExtension(file);
+					bool treeOnly = includePathItem != null && includePathItem.TreeOnly;
+					bool extTreeOnly;
+					if (extensionTreeOnlyMap.TryGetValue(extension, out extTreeOnly)) {
+						treeOnly = treeOnly || extTreeOnly;
+					}
+					
+					files.Add(new FileEntry { Path = file, TreeOnly = treeOnly });
+				}
 			}
 			
 			// === 2. INCLUDE FILES (support "!" override) ===
 			if (config.IncludeFiles != null && config.IncludeFiles.Count > 0) {
-				foreach (string includeFileRaw in config.IncludeFiles) {
-					if (string.IsNullOrWhiteSpace(includeFileRaw))
+				foreach (var includeFileItem in config.IncludeFiles) {
+					string includeValue = includeFileItem == null ? null : includeFileItem.Value;
+					if (string.IsNullOrWhiteSpace(includeValue))
 						continue;
 					
-					string includeFile = includeFileRaw.Trim();
+					string includeFile = includeValue.Trim();
 					
 					// Check if there is a "!" at the end - this is a sign of a "forced" include
 					bool forceInclude = false;
@@ -337,7 +417,14 @@ END OF INSTRUCTIONS");
 					if (File.Exists(fullPath)) {
 						// Если стоит "!", игнорируем ExcludePaths
 						if (forceInclude || !IsFileExcluded(fullPath, rootFolder, config.ExcludePaths)) {
-							files.Add(fullPath);
+							string extension = Path.GetExtension(fullPath);
+							bool treeOnly = includeFileItem != null && includeFileItem.TreeOnly;
+							bool extTreeOnly;
+							if (extensionTreeOnlyMap.TryGetValue(extension, out extTreeOnly)) {
+								treeOnly = treeOnly || extTreeOnly;
+							}
+							
+							files.Add(new FileEntry { Path = fullPath, TreeOnly = treeOnly });
 							Console.WriteLine(
 								forceInclude
 									? "Including file (override): {0}"
@@ -372,16 +459,20 @@ END OF INSTRUCTIONS");
 			return Path.Combine(resultPath, resultFilename);
 		}
 		
-		static bool WriteResultFile(Config config, List<string> files, string resultFilePath, string rootFolder) {
+		static bool WriteResultFile(Config config, List<FileEntry> files, string resultFilePath, string rootFolder) {
 			try {
 				using (StreamWriter writer = new StreamWriter(resultFilePath)) {
 					// Write folder structure from filtered files first
 					string folderStructure = GenerateFolderStructureFromFilteredFiles(files, rootFolder);
 					writer.WriteLine(folderStructure);
 					
-					foreach (string file in files) {
-						string relativePath = GetRelativePath(rootFolder, file);
-						string fileContent = File.ReadAllText(file);
+					foreach (var file in files) {
+						if (file.TreeOnly) {
+							continue;
+						}
+						
+						string relativePath = GetRelativePath(rootFolder, file.Path);
+						string fileContent = File.ReadAllText(file.Path);
 						
 						Console.WriteLine("Packing file: {0}", relativePath);
 						
@@ -520,9 +611,10 @@ END OF INSTRUCTIONS");
 			}
 		}
 		
-		static string GenerateFolderStructureFromFilteredFiles(List<string> filteredFiles, string rootFolder) {
+		static string GenerateFolderStructureFromFilteredFiles(List<FileEntry> filteredFiles, string rootFolder) {
 			// Build the tree structure
-			TreeNode rootNode = BuildTree(filteredFiles, rootFolder);
+			var allPaths = filteredFiles.Select(f => f.Path).ToList();
+			TreeNode rootNode = BuildTree(allPaths, rootFolder);
 			
 			// Mark collapsible nodes
 			MarkCollapsibleNodes(rootNode, true); // Changed here
@@ -719,8 +811,17 @@ END OF INSTRUCTIONS");
 				
 				if (hasWildcard) {
 					// wildcard by relative path
-					if (WildcardMatch(relativePath, pattern)) {
+					string normalizedPattern = pattern.Replace('\\', '/');
+					if (WildcardMatch(relativePath, normalizedPattern)) {
 						return true;
+					}
+					
+					// If pattern points to a folder, also match anything under it.
+					if (!normalizedPattern.EndsWith("*")) {
+						string folderPattern = normalizedPattern.TrimEnd('/') + "/*";
+						if (WildcardMatch(relativePath, folderPattern)) {
+							return true;
+						}
 					}
 				}
 				else {
