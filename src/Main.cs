@@ -88,7 +88,14 @@ namespace BackupFiles
 				return;
 			}
 			
-			if (config.Extensions == null || config.Extensions.Count == 0 ||
+			var extensionItems = config.Extensions == null
+				? new List<ConfigItem>()
+				: config.Extensions.GetAllExtensions();
+
+			int enabledExtensionCount = extensionItems
+				.Count(item => item != null && item.Enable && !string.IsNullOrWhiteSpace(item.Value));
+
+			if (enabledExtensionCount == 0 ||
 				config.IncludePaths == null || config.IncludePaths.Count == 0) {
 				Console.WriteLine("Extensions or IncludePaths are missing in the config file.");
 				return;
@@ -107,7 +114,7 @@ namespace BackupFiles
 			// Collect files
 			List<FileEntry> files;
 			try {
-				files = GetFiles(config, rootFolder);
+				files = GetFiles(config, rootFolder, extensionItems);
 			}
 			catch (Exception ex) {
 				Console.WriteLine("Error while collecting files: {0}", ex.Message);
@@ -232,107 +239,207 @@ namespace BackupFiles
 			}
 		}
 		
-		static void CreateConfigTemplate(string configPath) {
-			var config = new Config {
-				ProjectName = "MyProject",
-				Version = "1.0.0",
-				Extensions = new List<ConfigItem> {
-					new ConfigItem { Value = ".txt" },
-					new ConfigItem { Value = ".config" },
-					new ConfigItem { Value = ".md" },
-					new ConfigItem { Value = ".webmanifest" },
-					new ConfigItem { Value = ".htaccess" },
-					new ConfigItem { Value = ".json" },
-					new ConfigItem { Value = ".xml" },
-					new ConfigItem { Value = ".yaml" },
-					new ConfigItem { Value = ".csv" },
-					new ConfigItem { Value = ".html" },
-					new ConfigItem { Value = ".js" },
-					new ConfigItem { Value = ".ts" },
-					new ConfigItem { Value = ".tsx" },
-					new ConfigItem { Value = ".php" },
-					new ConfigItem { Value = ".css" },
-					new ConfigItem { Value = ".scss" },
-					new ConfigItem { Value = ".less" },
-					new ConfigItem { Value = ".py" },
-					new ConfigItem { Value = ".cs" },
-					new ConfigItem { Value = ".asp" },
-					new ConfigItem { Value = ".rb" },
-					new ConfigItem { Value = ".dll", TreeOnly = true },
-					new ConfigItem { Value = ".exe", TreeOnly = true },
-					new ConfigItem { Value = ".jpg", TreeOnly = true },
-					new ConfigItem { Value = ".jpeg", TreeOnly = true },
-					new ConfigItem { Value = ".svg", TreeOnly = true },
-					new ConfigItem { Value = ".png", TreeOnly = true },
-					new ConfigItem { Value = ".webp", TreeOnly = true },
-					new ConfigItem { Value = ".ico", TreeOnly = true },
-					new ConfigItem { Value = ".db", TreeOnly = true },
-					new ConfigItem { Value = ".sqlite", TreeOnly = true },
-					new ConfigItem { Value = ".env", TreeOnly = true }
-				},
-				IncludePaths = new List<ConfigItem> {
-					new ConfigItem { Value = "./public" },
-					new ConfigItem { Value = "./src" },
-					new ConfigItem { Value = "./lib" },
-					new ConfigItem { Value = "./assets" },
-					new ConfigItem { Value = "*/res", TreeOnly = true },
-					new ConfigItem { Value = "*/bin", TreeOnly = true },
-					new ConfigItem { Value = "*/img", TreeOnly = true }
-				},
-				IncludeFiles = new List<ConfigItem> {
-					new ConfigItem { Value = "./backup.config.xml" },
-					new ConfigItem { Value = "./backup.web.config.xml !" }
-				},
-				ExcludePaths = new List<string> { "./backup", "./archive", "*/node_modules", "*/vendor", "./bin", "./backup.*.config.xml", "*.min.js" },
-				ResultPath = "./backup",
-				ResultFilenameMask = "@PROJECTNAME_@VER_#YYYYMMDDhhmmss#.bak.txt",
-				IsExample = 1
-			};
-			
+				static void CreateConfigTemplate(string configPath) {
 			try {
-				// 1. Serialize the object into a temporary string
-				XmlSerializer serializer = new XmlSerializer(typeof(Config));
-				XDocument doc;
-				
-				using (var ms = new MemoryStream())
-				{
-					serializer.Serialize(ms, config);
-					ms.Position = 0;
-					doc = XDocument.Load(ms);
-				}
-				
-				// 2. Add instructions as an XML comment
-				XComment instructions = new XComment(
-@"HOW TO USE THIS FILE
+				string xml = @"<?xml version=""1.0"" encoding=""utf-8""?>
+<!--HOW TO USE THIS FILE
 1. This file defines which files and folders will be included in your backup.
-2. IncludePaths – folders scanned recursively.
-3. IncludeFiles – specific files added manually.
+2. IncludePaths - folders scanned recursively.
+3. IncludeFiles - specific files added manually.
    - If a file ends with ""!"", it ignores ExcludePaths and will ALWAYS be included.
-4. ExcludePaths – wildcard patterns for files/folders to exclude:
-	  • *.min.js
-	  • */node_modules/*
-	  • backup.*.config.xml
-5. Extensions – allowed file formats.
-6. ResultPath – folder where backups will be saved.
-7. ResultFilenameMask – pattern used to build the backup filename.
+4. ExcludePaths - wildcard patterns for files/folders to exclude:
+    * *.min.js
+    * */node_modules/*
+    * backup.*.config.xml
+5. Extensions - allowed file formats.
+6. ResultPath - folder where backups will be saved.
+7. ResultFilenameMask - pattern used to build the backup filename.
 8. IsExample=1 disables work. Set it to 0 before using.
 9. To use this config, drag & drop it onto the BackupFiles.exe application.
-END OF INSTRUCTIONS");
-				
-				// 3. Add a comment to the beginning of the document
-				doc.Root.AddBeforeSelf(instructions);
-				
-				// 4. Save the file
-				doc.Save(configPath);
-				
+END OF INSTRUCTIONS-->
+<configuration>
+  <ProjectName>MyProject</ProjectName>
+  <Version>1.0.0</Version>
+  <extensions>
+    <!-- Web technologies and frontend -->
+    <group name=""Web and Frontend"">
+      <extension>.html</extension>
+      <extension>.js</extension>
+      <extension>.ts</extension>
+      <extension>.tsx</extension>
+      <extension>.css</extension>
+      <extension>.scss</extension>
+      <extension>.less</extension>
+      <extension>.mjml</extension>
+      <extension>.liquid</extension>
+      <extension>.twig</extension>
+      <extension>.webmanifest</extension>
+      <extension>.map</extension>
+    </group>
+
+    <!-- Source code and development -->
+    <group name=""Programming Languages"">
+      <extension>.py</extension>
+      <extension>.cs</extension>
+      <extension>.csproj</extension>
+      <extension>.sln</extension>
+      <extension>.php</extension>
+      <extension>.asp</extension>
+      <extension>.rb</extension>
+      <extension>.go</extension>
+      <extension>.rs</extension>
+      <extension>.java</extension>
+      <extension>.kt</extension>
+      <extension>.swift</extension>
+      <extension>.m</extension>
+      <extension>.dart</extension>
+    </group>
+
+    <!-- Configs and automation -->
+    <group name=""Config and Automation"">
+      <extension>.config</extension>
+      <extension>.yaml</extension>
+      <extension>.yml</extension>
+      <extension>.json</extension>
+      <extension>.xml</extension>
+      <extension>.toml</extension>
+      <extension>.ini</extension>
+      <extension>.htaccess</extension>
+      <extension>.editorconfig</extension>
+      <extension>.prettierrc</extension>
+      <extension>.eslintrc</extension>
+      <extension>.babelrc</extension>
+      <extension>.stylelintrc</extension>
+      <extension>.dockerignore</extension>
+      <extension>.gradle</extension>
+      <extension>.sh</extension>
+      <extension>.bat</extension>
+      <extension>.ps1</extension>
+    </group>
+
+    <!-- Data and databases -->
+    <group name=""Data and Databases"">
+      <extension>.sql</extension>
+      <extension>.csv</extension>
+      <extension>.dsv</extension>
+      <extension>.cube</extension>
+      <extension>.dwproj</extension>
+      <extension>.partitions</extension>
+      <extension>.ds</extension>
+      <extension>.dim</extension>
+      <extension>.role</extension>
+      <extension>.user</extension>
+      <extension tree_only=""true"">.db</extension>
+      <extension tree_only=""true"">.sqlite</extension>
+    </group>
+
+    <!-- Docs and shader files -->
+    <group name=""Docs and Shaders"">
+      <extension>.md</extension>
+      <extension>.txt</extension>
+      <extension>.rst</extension>
+      <extension>.glsl</extension>
+      <extension>.hlsl</extension>
+      <extension>.wgsl</extension>
+    </group>
+
+    <!-- Images and video -->
+    <group name=""Media Assets"" tree_only=""true"">
+      <extension>.jpg</extension>
+      <extension>.jpeg</extension>
+      <extension>.png</extension>
+      <extension>.webp</extension>
+      <extension>.gif</extension>
+      <extension>.ico</extension>
+      <extension>.svg</extension>
+      <extension>.mp4</extension>
+      <extension>.webm</extension>
+      <extension>.mp3</extension>
+      <extension>.wav</extension>
+    </group>
+
+    <!-- Fonts -->
+    <group name=""Fonts"" tree_only=""true"">
+      <extension>.woff</extension>
+      <extension>.woff2</extension>
+      <extension>.ttf</extension>
+      <extension>.otf</extension>
+      <extension>.eot</extension>
+    </group>
+
+    <!-- Compiled and archives -->
+    <group name=""Binary and Archives"" tree_only=""true"">
+      <extension>.dll</extension>
+      <extension>.exe</extension>
+      <extension>.jar</extension>
+      <extension>.aar</extension>
+      <extension>.apk</extension>
+      <extension>.zip</extension>
+      <extension>.tar</extension>
+      <extension>.gz</extension>
+      <extension>.7z</extension>
+      <extension>.rar</extension>
+    </group>
+
+    <!-- Secrets and certificates -->
+    <group name=""Security"" tree_only=""true"">
+      <extension>.env</extension>
+      <extension>.crt</extension>
+      <extension>.pem</extension>
+      <extension>.key</extension>
+      <extension>.p12</extension>
+    </group>
+
+    <!-- Design and system files -->
+    <group name=""Design and System"" tree_only=""true"">
+      <extension>.pdf</extension>
+      <extension>.psd</extension>
+      <extension>.ai</extension>
+      <extension>.sketch</extension>
+      <extension>.fig</extension>
+      <extension>.DS_Store</extension>
+      <extension enable=""false"">Thumbs.db</extension>
+      <extension>.log</extension>
+    </group>
+  </extensions>
+  <includePaths>
+    <includePath>./public</includePath>
+    <includePath>./src</includePath>
+    <includePath>./lib</includePath>
+    <includePath>./assets</includePath>
+    <includePath tree_only=""true"">*/res</includePath>
+    <includePath tree_only=""true"">*/bin</includePath>
+    <includePath tree_only=""true"">*/img</includePath>
+  </includePaths>
+  <includeFiles>
+    <includeFile>./backup.config.xml</includeFile>
+    <includeFile>./backup.web.config.xml !</includeFile>
+  </includeFiles>
+  <excludePaths>
+    <excludePath>./backup</excludePath>
+    <excludePath>./archive</excludePath>
+    <excludePath>*/node_modules</excludePath>
+    <excludePath>*/vendor</excludePath>
+    <excludePath>./bin</excludePath>
+    <excludePath>./backup.*.config.xml</excludePath>
+    <excludePath>*.min.js</excludePath>
+  </excludePaths>
+  <ResultPath>./backup</ResultPath>
+  <ResultFilenameMask>@PROJECTNAME_@VER_#YYYYMMDDhhmmss#.bak.txt</ResultFilenameMask>
+  <EnableZip>false</EnableZip>
+  <DeleteUnziped>false</DeleteUnziped>
+  <IsExample>1</IsExample>
+</configuration>";
+
+				File.WriteAllText(configPath, xml);
+
 				Console.WriteLine("Config template created with instructions: " + configPath);
 			}
 			catch (Exception ex) {
 				Console.WriteLine("Error creating config template: {0}", ex.Message);
 			}
 		}
-		
-		static T Deserialize<T>(string filePath) {
+static T Deserialize<T>(string filePath) {
 			try {
 				XmlSerializer serializer = new XmlSerializer(typeof(T));
 				using (FileStream fileStream = new FileStream(filePath, FileMode.Open)) {
@@ -345,13 +452,13 @@ END OF INSTRUCTIONS");
 			}
 		}
 		
-		static List<FileEntry> GetFiles(Config config, string rootFolder) {
+		static List<FileEntry> GetFiles(Config config, string rootFolder, List<ConfigItem> extensionItems) {
 			var files = new List<FileEntry>();
 			
 			var extensionTreeOnlyMap = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-			foreach (var extItem in config.Extensions ?? new List<ConfigItem>()) {
+			foreach (var extItem in extensionItems ?? new List<ConfigItem>()) {
 				string extValue = extItem == null ? null : extItem.Value;
-				if (string.IsNullOrWhiteSpace(extValue)) {
+				if (string.IsNullOrWhiteSpace(extValue) || (extItem != null && !extItem.Enable)) {
 					continue;
 				}
 				
@@ -467,12 +574,17 @@ END OF INSTRUCTIONS");
 					writer.WriteLine(folderStructure);
 					
 					foreach (var file in files) {
-						if (file.TreeOnly) {
-							continue;
-						}
-						
-						string relativePath = GetRelativePath(rootFolder, file.Path);
-						string fileContent = File.ReadAllText(file.Path);
+					if (file.TreeOnly) {
+						continue;
+					}
+					
+					string relativePath = GetRelativePath(rootFolder, file.Path);
+					if (!IsLikelyTextFile(file.Path)) {
+						Console.WriteLine("Skipping binary file: {0}", relativePath);
+						continue;
+					}
+					
+					string fileContent = File.ReadAllText(file.Path);
 						
 						Console.WriteLine("Packing file: {0}", relativePath);
 						
@@ -536,6 +648,43 @@ END OF INSTRUCTIONS");
 				Console.WriteLine("Error getting relative path: {0}", ex.Message);
 				throw;
 			}
+		}
+		
+		static bool IsLikelyTextFile(string filePath) {
+			const int sampleSize = 4096;
+			byte[] buffer;
+			
+			try {
+				using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
+					int length = (int)Math.Min(sampleSize, stream.Length);
+					buffer = new byte[length];
+					int read = stream.Read(buffer, 0, length);
+					if (read <= 0) {
+						return true;
+					}
+				}
+			}
+			catch {
+				return false;
+			}
+			
+			int controlCount = 0;
+			for (int i = 0; i < buffer.Length; i++) {
+				byte b = buffer[i];
+				if (b == 0) {
+					return false;
+				}
+				
+				bool isControl = (b < 0x09) || (b > 0x0D && b < 0x20);
+				if (isControl) {
+					controlCount++;
+					if (controlCount > 4) {
+						return false;
+					}
+				}
+			}
+			
+			return true;
 		}
 		
 		// >>>>> MAKE TREE section >>>>>

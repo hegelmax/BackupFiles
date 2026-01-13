@@ -9,9 +9,8 @@ namespace BackupFiles
 		public string ProjectName { get; set; }
 		public string Version { get; set; }
 
-		[XmlArray("extensions")]
-		[XmlArrayItem("extension")]
-		public List<ConfigItem> Extensions { get; set; }
+		[XmlElement("extensions")]
+		public ExtensionsConfig Extensions { get; set; }
 
 		[XmlArray("includePaths")]
 		[XmlArrayItem("includePath")]
@@ -36,10 +35,59 @@ namespace BackupFiles
 	
 	public class ConfigItem
 	{
+		public ConfigItem() {
+			Enable = true;
+		}
+
 		[XmlText]
 		public string Value { get; set; }
 		
 		[XmlAttribute("tree_only")]
 		public bool TreeOnly { get; set; }
+
+		[XmlAttribute("enable")]
+		public bool Enable { get; set; }
+	}
+
+	public class ExtensionsConfig
+	{
+		[XmlElement("extension")]
+		public List<ConfigItem> Extensions { get; set; }
+
+		[XmlElement("group")]
+		public List<ConfigGroup> Groups { get; set; }
+
+		public List<ConfigItem> GetAllExtensions() {
+			var items = new List<ConfigItem>();
+			if (Extensions != null) {
+				items.AddRange(Extensions);
+			}
+			if (Groups != null) {
+				foreach (var group in Groups) {
+					if (group != null && group.Extensions != null) {
+						foreach (var extension in group.Extensions) {
+							if (extension != null && group.TreeOnly) {
+								extension.TreeOnly = extension.TreeOnly || group.TreeOnly;
+							}
+							items.Add(extension);
+						}
+					}
+				}
+			}
+
+			return items;
+		}
+	}
+
+	public class ConfigGroup
+	{
+		[XmlAttribute("name")]
+		public string Name { get; set; }
+
+		[XmlAttribute("tree_only")]
+		public bool TreeOnly { get; set; }
+
+		[XmlElement("extension")]
+		public List<ConfigItem> Extensions { get; set; }
 	}
 }
