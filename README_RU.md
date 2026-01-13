@@ -55,8 +55,7 @@ BackupFiles/
   <build_target>exe</build_target>
 
   <lib_folders>lib,src</lib_folders>
-  <icon_file_path>.
-es\icon.ico</icon_file_path>
+  <icon_file_path>.\res\icon.ico</icon_file_path>
 
   <release_version>24</release_version>
   <build_version>24</build_version>
@@ -78,11 +77,14 @@ es\icon.ico</icon_file_path>
 3. IncludeFiles – specific files added manually.
    - If a file ends with "!", it ignores ExcludePaths and will ALWAYS be included.
 4. ExcludePaths – wildcard patterns for files/folders to exclude.
-5. Extensions – allowed file formats.
-6. ResultPath – folder where backups will be saved.
-7. ResultFilenameMask – pattern used to build the backup filename.
-8. IsExample=1 disables work. Set it to 0 before using.
-9. To use this config, drag & drop it onto the BackupFiles.exe application.
+5. Extensions - allowed file formats.
+6. ResultPath - folder where backups will be saved.
+7. ResultFilenameMask - pattern used to build the backup filename.
+8. Created - last backup timestamp (updated automatically).
+9. UpdateCheckMinutes - update check interval in minutes (0 disables).
+10. UpdateCheckTimeoutSeconds - update check timeout in seconds.
+11. IsExample=1 disables work. Set it to 0 before using.
+12. To use this config, drag & drop it onto the BackupFiles.exe application.
 END OF INSTRUCTIONS -->
 ```
 
@@ -92,6 +94,9 @@ END OF INSTRUCTIONS -->
 <configuration>
   <ProjectName>MyProject</ProjectName>
   <Version>1.0.0</Version>
+  <Created>YYYY-MM-DD hh:mm:ss</Created>
+  <UpdateCheckMinutes>1440</UpdateCheckMinutes>
+  <UpdateCheckTimeoutSeconds>5</UpdateCheckTimeoutSeconds>
 
   <extensions>
     <extension>.config</extension>
@@ -116,6 +121,10 @@ END OF INSTRUCTIONS -->
 </configuration>
 ```
 
+Дополнение по `extensions`: теперь это маски файлов.  
+Пример: `.js` ⇒ `*.js`, `.min.js` ⇒ `*.min.js`.  
+Правила применяются от самых длинных масок к коротким, поэтому `*.min.js` сработает раньше, чем `*.js`.
+
 #### Расширенные настройки (с версии 1.1.0)
 
 - **Wildcard-паттерны в `ExcludePaths`**:
@@ -127,6 +136,10 @@ END OF INSTRUCTIONS -->
   - `./backup.api.config.xml !` — будет включён всегда, даже если совпадает с маской в `ExcludePaths`  
 - **Несколько конфигов**:
   - Можно хранить несколько конфигов (`backup.web.config.xml`, `backup.api.config.xml` и т.п.) рядом с приложением и запускать бэкап с нужным конфигом, просто перетаскивая XML на `BackupFiles.exe`.
+- **Проверка обновлений**:
+  - `UpdateCheckMinutes` — интервал проверки в минутах (0 отключает).
+  - `UpdateCheckTimeoutSeconds` — таймаут запроса в секундах.
+  - `Created` — отметка времени последнего бэкапа, обновляется автоматически.
 
 ---
 

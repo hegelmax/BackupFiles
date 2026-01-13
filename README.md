@@ -55,8 +55,7 @@ Main build parameters are defined in **`app.config`**:
   <build_target>exe</build_target>
 
   <lib_folders>lib,src</lib_folders>
-  <icon_file_path>.
-es\icon.ico</icon_file_path>
+  <icon_file_path>.\res\icon.ico</icon_file_path>
 
   <release_version>24</release_version>
   <build_version>24</build_version>
@@ -81,8 +80,11 @@ If the file is missing, the application will create an auto-generated template o
 5. Extensions – allowed file formats.
 6. ResultPath – folder where backups will be saved.
 7. ResultFilenameMask – pattern used to build the backup filename.
-8. IsExample=1 disables work. Set it to 0 before using.
-9. To use this config, drag & drop it onto the BackupFiles.exe application.
+8. Created – last backup timestamp (updated automatically).
+9. UpdateCheckMinutes – update check interval in minutes (0 disables).
+10. UpdateCheckTimeoutSeconds – update check timeout in seconds.
+11. IsExample=1 disables work. Set it to 0 before using.
+12. To use this config, drag & drop it onto the BackupFiles.exe application.
 END OF INSTRUCTIONS -->
 ```
 
@@ -92,6 +94,9 @@ Example template (simplified):
 <configuration>
   <ProjectName>MyProject</ProjectName>
   <Version>1.0.0</Version>
+  <Created>YYYY-MM-DD hh:mm:ss</Created>
+  <UpdateCheckMinutes>1440</UpdateCheckMinutes>
+  <UpdateCheckTimeoutSeconds>5</UpdateCheckTimeoutSeconds>
 
   <extensions>
     <extension>.config</extension>
@@ -116,6 +121,10 @@ Example template (simplified):
 </configuration>
 ```
 
+Note on `extensions`: these are filename masks now.  
+Examples: `.js` ⇒ `*.js`, `.min.js` ⇒ `*.min.js`.  
+Rules are applied from the longest mask to the shortest, so `*.min.js` wins over `*.js`.
+
 #### Advanced configuration (since v1.1.0)
 
 - **Wildcard exclude rules** in `ExcludePaths`:
@@ -127,6 +136,10 @@ Example template (simplified):
   - `./backup.api.config.xml !` – included **even if** it matches `ExcludePaths`
 - **Multiple configs**:
   - You can maintain several XML configs (e.g. `backup.web.config.xml`, `backup.api.config.xml`) next to the application and run a backup with any of them by drag & dropping the config onto `BackupFiles.exe`.
+- **Update check**:
+  - `UpdateCheckMinutes` – interval in minutes (0 disables).
+  - `UpdateCheckTimeoutSeconds` – HTTP timeout in seconds.
+  - `Created` – last backup timestamp, updated automatically.
 
 ---
 

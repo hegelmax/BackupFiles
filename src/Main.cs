@@ -23,6 +23,13 @@ namespace BackupFiles
 		public string Path;
 		public bool TreeOnly;
 	}
+
+	class PatternRule {
+		public string Pattern;
+		public bool TreeOnly;
+		public int Length;
+		public int Index;
+	}
 	
 	class Program
 	{
@@ -294,6 +301,7 @@ END OF INSTRUCTIONS-->
     <group name=""Web and Frontend"">
       <extension>.html</extension>
       <extension>.js</extension>
+	  <extension tree_only=""true"">.min.js</extension>
       <extension>.ts</extension>
       <extension>.tsx</extension>
       <extension>.css</extension>
@@ -432,6 +440,7 @@ END OF INSTRUCTIONS-->
     </group>
   </extensions>
   <includePaths>
+    <includePath>./</includePath>
     <includePath>./public</includePath>
     <includePath>./src</includePath>
     <includePath>./lib</includePath>
@@ -445,13 +454,16 @@ END OF INSTRUCTIONS-->
     <includeFile>./backup.web.config.xml !</includeFile>
   </includeFiles>
   <excludePaths>
+    <excludePath>./.git</excludePath>
     <excludePath>./backup</excludePath>
     <excludePath>./archive</excludePath>
     <excludePath>*/node_modules</excludePath>
     <excludePath>*/vendor</excludePath>
-    <excludePath>./bin</excludePath>
+    <excludePath>*/bin</excludePath>
+	<excludePath>*/dist</excludePath>
+	<excludePath>*/build</excludePath>
+	<excludePath>*/obj</excludePath>
     <excludePath>./backup.*.config.xml</excludePath>
-    <excludePath>*.min.js</excludePath>
   </excludePaths>
   <ResultPath>./backup</ResultPath>
   <ResultFilenameMask>@PROJECTNAME_@VER_#YYYYMMDDhhmmss#.bak.txt</ResultFilenameMask>
@@ -485,21 +497,7 @@ END OF INSTRUCTIONS-->
 		static List<FileEntry> GetFiles(Config config, string rootFolder, List<ConfigItem> extensionItems) {
 			var files = new List<FileEntry>();
 			
-			var extensionTreeOnlyMap = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-			foreach (var extItem in extensionItems ?? new List<ConfigItem>()) {
-				string extValue = extItem == null ? null : extItem.Value;
-				if (string.IsNullOrWhiteSpace(extValue) || (extItem != null && !extItem.Enable)) {
-					continue;
-				}
-				
-				bool existing;
-				if (extensionTreeOnlyMap.TryGetValue(extValue, out existing)) {
-					extensionTreeOnlyMap[extValue] = existing || extItem.TreeOnly;
-				}
-				else {
-					extensionTreeOnlyMap[extValue] = extItem.TreeOnly;
-				}
-			}
+			var patternRules = BuildPatternRules(extensionItems);
 			
 			// === 1. INCLUDE PATHS ===
 			foreach (var includePathItem in config.IncludePaths ?? new List<ConfigItem>()) {
@@ -516,17 +514,17 @@ END OF INSTRUCTIONS-->
 				}
 				
 				var includedFiles = Directory.GetFiles(fullPath, "*.*", SearchOption.AllDirectories)
-					.Where(file => extensionTreeOnlyMap.ContainsKey(Path.GetExtension(file)))
 					.Where(file => !IsFileExcluded(file, rootFolder, config.ExcludePaths))
 					.ToList();
 				
 				foreach (var file in includedFiles) {
-					string extension = Path.GetExtension(file);
-					bool treeOnly = includePathItem != null && includePathItem.TreeOnly;
-					bool extTreeOnly;
-					if (extensionTreeOnlyMap.TryGetValue(extension, out extTreeOnly)) {
-						treeOnly = treeOnly || extTreeOnly;
+					bool ruleTreeOnly;
+					if (!TryMatchPatterns(file, rootFolder, patternRules, out ruleTreeOnly)) {
+						continue;
 					}
+					
+					bool treeOnly = includePathItem != null && includePathItem.TreeOnly;
+					treeOnly = treeOnly || ruleTreeOnly;
 					
 					files.Add(new FileEntry { Path = file, TreeOnly = treeOnly });
 				}
@@ -554,11 +552,10 @@ END OF INSTRUCTIONS-->
 					if (File.Exists(fullPath)) {
 						// Если стоит "!", игнорируем ExcludePaths
 						if (forceInclude || !IsFileExcluded(fullPath, rootFolder, config.ExcludePaths)) {
-							string extension = Path.GetExtension(fullPath);
 							bool treeOnly = includeFileItem != null && includeFileItem.TreeOnly;
-							bool extTreeOnly;
-							if (extensionTreeOnlyMap.TryGetValue(extension, out extTreeOnly)) {
-								treeOnly = treeOnly || extTreeOnly;
+							bool ruleTreeOnly;
+							if (TryMatchPatterns(fullPath, rootFolder, patternRules, out ruleTreeOnly)) {
+								treeOnly = treeOnly || ruleTreeOnly;
 							}
 							
 							files.Add(new FileEntry { Path = fullPath, TreeOnly = treeOnly });
@@ -594,6 +591,65 @@ END OF INSTRUCTIONS-->
 				.Replace("@VER", config.Version)
 				.Replace("#YYYYMMDDhhmmss#", DateTime.Now.ToString("yyyyMMddHHmmss"));
 			return Path.Combine(resultPath, resultFilename);
+		}
+
+		static List<PatternRule> BuildPatternRules(List<ConfigItem> items) {
+			var rules = new List<PatternRule>();
+			int index = 0;
+			
+			foreach (var item in items ?? new List<ConfigItem>()) {
+				string raw = item == null ? null : item.Value;
+				if (string.IsNullOrWhiteSpace(raw) || (item != null && !item.Enable)) {
+					index++;
+					continue;
+				}
+				
+				string pattern = raw.Trim();
+				bool hasWildcard = pattern.IndexOf('*') >= 0 || pattern.IndexOf('?') >= 0;
+				if (!hasWildcard) {
+					pattern = "*" + pattern;
+				}
+				
+				rules.Add(new PatternRule {
+					Pattern = pattern,
+					TreeOnly = item != null && item.TreeOnly,
+					Length = pattern.Length,
+					Index = index
+				});
+				
+				index++;
+			}
+			
+			rules.Sort((a, b) => {
+				int cmp = b.Length.CompareTo(a.Length);
+				if (cmp != 0) return cmp;
+				return a.Index.CompareTo(b.Index);
+			});
+			
+			return rules;
+		}
+
+		static bool TryMatchPatterns(string filePath, string rootFolder, List<PatternRule> rules, out bool treeOnly) {
+			treeOnly = false;
+			if (rules == null || rules.Count == 0) {
+				return false;
+			}
+			
+			string relativePath = GetRelativePath(rootFolder, filePath).Replace('\\', '/');
+			string fileName = Path.GetFileName(filePath);
+			
+			foreach (var rule in rules) {
+				if (rule == null || string.IsNullOrEmpty(rule.Pattern)) {
+					continue;
+				}
+				
+				if (WildcardMatch(relativePath, rule.Pattern) || WildcardMatch(fileName, rule.Pattern)) {
+					treeOnly = rule.TreeOnly;
+					return true;
+				}
+			}
+			
+			return false;
 		}
 		
 		static bool WriteResultFile(Config config, List<FileEntry> files, string resultFilePath, string rootFolder) {

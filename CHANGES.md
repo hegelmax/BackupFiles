@@ -4,7 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [1.0.27] — 2025-11-21
+## [1.0.33] - 2026-01-13
+### Added
+- Update check frequency and timeout are now configurable via `UpdateCheckMinutes` and `UpdateCheckTimeoutSeconds`.
+- Added `Created` timestamp in config, updated automatically after backup and used for update-check cadence.
+- Extensions now act as filename masks (e.g. `.js` -> `*.js`, `.min.js` -> `*.min.js`) and are applied by longest match first.
+
+### Improved
+- Update check now respects configurable timeouts and runs only when the cadence threshold is reached.
+
+---
+
+## [1.0.27] - 2025-11-21
 ### Added
 - Support for multiple configuration files:
   - Drag & drop any `.xml` config onto `BackupFiles.exe` to run backup using it
