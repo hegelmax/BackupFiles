@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Globalization;
 using System.Linq;
+using System.Net;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using System.Xml.Serialization;
@@ -81,6 +84,10 @@ namespace BackupFiles
 			if (config.IsExample == 1) {
 				Console.WriteLine("Config file is not set. Please update the 'is_example' parameter to 0.");
 				return;
+			}
+
+			if (ShouldCheckForUpdates(config)) {
+				CheckForUpdates(config.UpdateCheckTimeoutSeconds);
 			}
 
 			if (string.IsNullOrEmpty(config.ProjectName) || string.IsNullOrEmpty(config.Version)) {
@@ -218,8 +225,24 @@ namespace BackupFiles
 						// Construct the new version string
 						string newVersion = userDefinedPart+"."+majorVersion+"."+minorVersion;
 						
-						// Update the XML with the new version
-						versionElement.Value = newVersion;
+					// Update the XML with the new version
+					versionElement.Value = newVersion;
+
+					// Update or add Created timestamp
+					string createdValue = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+					XElement createdElement = configElement.Element("Created");
+					if (createdElement != null) {
+						createdElement.Value = createdValue;
+					}
+					else {
+						var newCreated = new XElement("Created", createdValue);
+						if (versionElement != null) {
+							versionElement.AddAfterSelf(newCreated);
+						}
+						else {
+							configElement.Add(newCreated);
+						}
+					}
 						
 						// Save the updated configuration back to the file
 						doc.Save(configPath);
@@ -239,9 +262,9 @@ namespace BackupFiles
 			}
 		}
 		
-				static void CreateConfigTemplate(string configPath) {
+		static void CreateConfigTemplate(string configPath) {
 			try {
-				string xml = @"<?xml version=""1.0"" encoding=""utf-8""?>
+				string xml = string.Format(CultureInfo.InvariantCulture, @"<?xml version=""1.0"" encoding=""utf-8""?>
 <!--HOW TO USE THIS FILE
 1. This file defines which files and folders will be included in your backup.
 2. IncludePaths - folders scanned recursively.
@@ -254,12 +277,18 @@ namespace BackupFiles
 5. Extensions - allowed file formats.
 6. ResultPath - folder where backups will be saved.
 7. ResultFilenameMask - pattern used to build the backup filename.
-8. IsExample=1 disables work. Set it to 0 before using.
-9. To use this config, drag & drop it onto the BackupFiles.exe application.
+8. Created - last backup timestamp (updated automatically).
+9. UpdateCheckMinutes - update check interval in minutes (0 disables).
+10. UpdateCheckTimeoutSeconds - update check timeout in seconds.
+11. IsExample=1 disables work. Set it to 0 before using.
+12. To use this config, drag & drop it onto the BackupFiles.exe application.
 END OF INSTRUCTIONS-->
 <configuration>
   <ProjectName>MyProject</ProjectName>
   <Version>1.0.0</Version>
+  <Created>{0}</Created>
+  <UpdateCheckMinutes>1440</UpdateCheckMinutes>
+  <UpdateCheckTimeoutSeconds>5</UpdateCheckTimeoutSeconds>
   <extensions>
     <!-- Web technologies and frontend -->
     <group name=""Web and Frontend"">
@@ -429,7 +458,7 @@ END OF INSTRUCTIONS-->
   <EnableZip>false</EnableZip>
   <DeleteUnziped>false</DeleteUnziped>
   <IsExample>1</IsExample>
-</configuration>";
+</configuration>", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
 
 				File.WriteAllText(configPath, xml);
 
@@ -439,7 +468,8 @@ END OF INSTRUCTIONS-->
 				Console.WriteLine("Error creating config template: {0}", ex.Message);
 			}
 		}
-static T Deserialize<T>(string filePath) {
+		
+		static T Deserialize<T>(string filePath) {
 			try {
 				XmlSerializer serializer = new XmlSerializer(typeof(T));
 				using (FileStream fileStream = new FileStream(filePath, FileMode.Open)) {
@@ -648,6 +678,103 @@ static T Deserialize<T>(string filePath) {
 				Console.WriteLine("Error getting relative path: {0}", ex.Message);
 				throw;
 			}
+		}
+
+		static bool ShouldCheckForUpdates(Config config) {
+			if (config == null) {
+				return false;
+			}
+
+			if (config.UpdateCheckMinutes <= 0) {
+				return false;
+			}
+
+			if (string.IsNullOrWhiteSpace(config.Created)) {
+				return true;
+			}
+
+			DateTime created;
+			bool parsed = DateTime.TryParseExact(
+				config.Created.Trim(),
+				"yyyy-MM-dd HH:mm:ss",
+				CultureInfo.InvariantCulture,
+				DateTimeStyles.AssumeLocal,
+				out created
+			);
+			if (!parsed) {
+				return true;
+			}
+
+			return (DateTime.Now - created) >= TimeSpan.FromMinutes(config.UpdateCheckMinutes);
+		}
+
+		static void CheckForUpdates(int timeoutSeconds) {
+			const string versionUrl = "https://raw.githubusercontent.com/hegelmax/BackupFiles/main/app.version.cs";
+			const string downloadUrl = "https://github.com/hegelmax/BackupFiles/tree/main/bin/Release";
+			
+			try {
+				int timeoutMs = Math.Max(1000, timeoutSeconds * 1000);
+				string content = DownloadStringWithTimeout(versionUrl, timeoutMs);
+				if (string.IsNullOrWhiteSpace(content)) {
+					return;
+				}
+				
+				string remoteVersionText = ExtractAssemblyFileVersion(content);
+				if (string.IsNullOrWhiteSpace(remoteVersionText)) {
+					return;
+				}
+				
+				Version localVersion = Assembly.GetExecutingAssembly().GetName().Version;
+				Version remoteVersion;
+				if (!Version.TryParse(remoteVersionText, out remoteVersion)) {
+					return;
+				}
+				
+				if (localVersion != null && remoteVersion > localVersion) {
+					Console.WriteLine(
+						"Update available: {0} (current {1})",
+						remoteVersion,
+						localVersion
+					);
+					Console.WriteLine("Download: {0}", downloadUrl);
+				}
+			}
+			catch {
+				// ignore update check errors
+			}
+		}
+
+		static string DownloadStringWithTimeout(string url, int timeoutMs) {
+			var request = (HttpWebRequest)WebRequest.Create(url);
+			request.Method = "GET";
+			request.UserAgent = "BackupFiles";
+			request.Timeout = timeoutMs;
+			request.ReadWriteTimeout = timeoutMs;
+
+			using (var response = (HttpWebResponse)request.GetResponse()) {
+				using (var stream = response.GetResponseStream()) {
+					if (stream == null) {
+						return null;
+					}
+					using (var reader = new StreamReader(stream)) {
+						return reader.ReadToEnd();
+					}
+				}
+			}
+		}
+
+		static string ExtractAssemblyFileVersion(string content) {
+			if (string.IsNullOrEmpty(content)) {
+				return null;
+			}
+			
+			Match match = Regex.Match(
+				content,
+				@"AssemblyFileVersionAttribute\(\s*""([^""]+)""\s*\)",
+				RegexOptions.IgnoreCase
+			);
+			
+			return match.Success ? match.Groups[1].Value : null;
 		}
 		
 		static bool IsLikelyTextFile(string filePath) {

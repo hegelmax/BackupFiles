@@ -6,8 +6,14 @@ namespace BackupFiles
 	[XmlRoot("configuration")]
 	public class Config
 	{
+		public Config() {
+			UpdateCheckMinutes = 1440;
+			UpdateCheckTimeoutSeconds = 5;
+		}
+
 		public string ProjectName { get; set; }
 		public string Version { get; set; }
+		public string Created { get; set; }
 
 		[XmlElement("extensions")]
 		public ExtensionsConfig Extensions { get; set; }
@@ -27,6 +33,9 @@ namespace BackupFiles
 		public string ResultPath { get; set; }
 		public string ResultFilenameMask { get; set; }
 		
+		public int UpdateCheckMinutes { get; set; }
+		public int UpdateCheckTimeoutSeconds { get; set; }
+
 		public bool EnableZip { get; set; }
 		public bool DeleteUnziped { get; set; }
 		
