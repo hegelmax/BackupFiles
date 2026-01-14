@@ -9,14 +9,44 @@ namespace BackupFiles
 		public Config() {
 			UpdateCheckMinutes = 1440;
 			UpdateCheckTimeoutSeconds = 5;
+			UpdateCheckVerbose = false;
+			DryRun = false;
+			LogLevel = "normal";
+			LogToFile = false;
+			LogFilePath = "./backup.log";
+			IncrementalBackup = false;
+			MaxFileSizeMB = 0;
+			MaxFileAgeDays = 0;
+			CleanupKeepLast = 0;
+			CleanupMaxAgeDays = 0;
 		}
+
+		public int IsExample { get; set; }
 
 		public string ProjectName { get; set; }
 		public string Version { get; set; }
 		public string Created { get; set; }
+		public string ResultPath { get; set; }
+		public string ResultFilenameMask { get; set; }
+		public bool EnableZip { get; set; }
+		public bool DeleteUnziped { get; set; }
 
-		[XmlElement("extensions")]
-		public ExtensionsConfig Extensions { get; set; }
+		public int UpdateCheckMinutes { get; set; }
+		public int UpdateCheckTimeoutSeconds { get; set; }
+		public bool UpdateCheckVerbose { get; set; }
+		
+		public bool DryRun { get; set; }
+		public string LogLevel { get; set; }
+		public bool LogToFile { get; set; }
+		public string LogFilePath { get; set; }
+
+		public bool IncrementalBackup { get; set; }
+		
+		public int MaxFileSizeMB { get; set; }
+		public int MaxFileAgeDays { get; set; }
+		
+		public int CleanupKeepLast { get; set; }
+		public int CleanupMaxAgeDays { get; set; }
 
 		[XmlArray("includePaths")]
 		[XmlArrayItem("includePath")]
@@ -30,16 +60,8 @@ namespace BackupFiles
 		[XmlArrayItem("excludePath")]
 		public List<string> ExcludePaths { get; set; }
 
-		public string ResultPath { get; set; }
-		public string ResultFilenameMask { get; set; }
-		
-		public int UpdateCheckMinutes { get; set; }
-		public int UpdateCheckTimeoutSeconds { get; set; }
-
-		public bool EnableZip { get; set; }
-		public bool DeleteUnziped { get; set; }
-		
-		public int IsExample { get; set; }
+		[XmlElement("extensions")]
+		public ExtensionsConfig Extensions { get; set; }
 	}
 	
 	public class ConfigItem

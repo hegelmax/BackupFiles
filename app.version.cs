@@ -2,8 +2,8 @@ using System.Reflection;
 
 [assembly: System.Reflection.AssemblyConfigurationAttribute(			"Release")]
 [assembly: System.Reflection.AssemblyInformationalVersionAttribute(		"1.00")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute(				"1.00.33.33")]
-[assembly: System.Reflection.AssemblyVersionAttribute(					"1.00.33.33")]
+[assembly: System.Reflection.AssemblyFileVersionAttribute(				"1.00.39.39")]
+[assembly: System.Reflection.AssemblyVersionAttribute(					"1.00.39.39")]
 
 [assembly: System.Reflection.AssemblyProductAttribute(					"BackupFiles")]
 [assembly: System.Reflection.AssemblyTitleAttribute(					"Backup Files")]

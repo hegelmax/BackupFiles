@@ -4,7 +4,7 @@
 **BackupFiles** is a simple C# console application designed to create backups of project source files and restore them when needed.  
 It collects all files with the specified extensions from defined directories, generates a single text backup file containing the entire project structure, and optionally compresses the result into a ZIP archive.
 
-Starting from version **1.1.0**, the tool also supports multiple configuration files, wildcard-based exclude rules, and forced include files.
+Recent versions add multiple configuration files, wildcard-based exclude rules, forced include files, update checks, dry-run mode, logging levels, size/age limits, and cleanup of old backups.
 
 ---
 
@@ -17,6 +17,11 @@ Starting from version **1.1.0**, the tool also supports multiple configuration f
 - 🧰 Multiple configs:
   - Run without arguments → use default `backup.config.xml`
   - Drag & drop any XML config onto `BackupFiles.exe` → use that config for backup
+- ?? Incremental backups (only files changed since last backup)
+- ?? Dry-run mode (preview without writing a backup)
+- ?? Log levels (quiet/normal/verbose) + optional log file
+- ?? Size/age limits to skip large or old files
+- ?? Auto-cleanup of old backups by count or age
 - 🧩 Generates a tree view of folder structure  
 - 🧾 Saves all file contents into a `.bak.txt` file  
 - 🗜️ Optional ZIP compression of the result  
@@ -80,11 +85,21 @@ If the file is missing, the application will create an auto-generated template o
 5. Extensions – allowed file formats.
 6. ResultPath – folder where backups will be saved.
 7. ResultFilenameMask – pattern used to build the backup filename.
-8. Created – last backup timestamp (updated automatically).
-9. UpdateCheckMinutes – update check interval in minutes (0 disables).
-10. UpdateCheckTimeoutSeconds – update check timeout in seconds.
-11. IsExample=1 disables work. Set it to 0 before using.
-12. To use this config, drag & drop it onto the BackupFiles.exe application.
+8. Created - last backup timestamp (updated automatically).
+9. UpdateCheckMinutes - update check interval in minutes (0 disables).
+10. UpdateCheckTimeoutSeconds - update check timeout in seconds.
+11. UpdateCheckVerbose - detailed update check logs (true/false).
+12. DryRun - preview files without writing a backup (true/false).
+13. LogLevel - quiet | normal | verbose.
+14. LogToFile - enable log file output (true/false).
+15. LogFilePath - log file path (relative to exe if not absolute).
+16. IncrementalBackup - include only files changed since last backup (true/false).
+17. MaxFileSizeMB - exclude files larger than this size (0 disables).
+18. MaxFileAgeDays - exclude files older than N days (0 disables).
+19. CleanupKeepLast - keep only last N backups (0 disables).
+20. CleanupMaxAgeDays - delete backups older than N days (0 disables).
+21. IsExample=1 disables work. Set it to 0 before using.
+22. To use this config, drag & drop it onto the BackupFiles.exe application.
 END OF INSTRUCTIONS -->
 ```
 
@@ -97,6 +112,16 @@ Example template (simplified):
   <Created>YYYY-MM-DD hh:mm:ss</Created>
   <UpdateCheckMinutes>1440</UpdateCheckMinutes>
   <UpdateCheckTimeoutSeconds>5</UpdateCheckTimeoutSeconds>
+  <UpdateCheckVerbose>false</UpdateCheckVerbose>
+  <DryRun>false</DryRun>
+  <LogLevel>normal</LogLevel>
+  <LogToFile>false</LogToFile>
+  <LogFilePath>./backup.log</LogFilePath>
+  <IncrementalBackup>false</IncrementalBackup>
+  <MaxFileSizeMB>0</MaxFileSizeMB>
+  <MaxFileAgeDays>0</MaxFileAgeDays>
+  <CleanupKeepLast>0</CleanupKeepLast>
+  <CleanupMaxAgeDays>0</CleanupMaxAgeDays>
 
   <extensions>
     <extension>.config</extension>
@@ -125,7 +150,7 @@ Note on `extensions`: these are filename masks now.
 Examples: `.js` ⇒ `*.js`, `.min.js` ⇒ `*.min.js`.  
 Rules are applied from the longest mask to the shortest, so `*.min.js` wins over `*.js`.
 
-#### Advanced configuration (since v1.1.0)
+#### Advanced configuration (recent versions)
 
 - **Wildcard exclude rules** in `ExcludePaths`:
   - `*.min.js` – exclude all minified JS files
@@ -137,9 +162,23 @@ Rules are applied from the longest mask to the shortest, so `*.min.js` wins over
 - **Multiple configs**:
   - You can maintain several XML configs (e.g. `backup.web.config.xml`, `backup.api.config.xml`) next to the application and run a backup with any of them by drag & dropping the config onto `BackupFiles.exe`.
 - **Update check**:
-  - `UpdateCheckMinutes` – interval in minutes (0 disables).
-  - `UpdateCheckTimeoutSeconds` – HTTP timeout in seconds.
-  - `Created` – last backup timestamp, updated automatically.
+  - `UpdateCheckMinutes` - interval in minutes (0 disables).
+  - `UpdateCheckTimeoutSeconds` - HTTP timeout in seconds.
+  - `UpdateCheckVerbose` - detailed update check logs.
+  - `Created` - last backup timestamp, updated automatically.
+- **Dry-run**:
+  - `DryRun` - preview what would be packed without writing a backup.
+- **Incremental backup**:
+  - `IncrementalBackup` - include only files changed since the last backup (based on `Created`).
+- **Logging**:
+  - `LogLevel` - quiet | normal | verbose.
+  - `LogToFile` / `LogFilePath` - write console output to a file.
+- **Limits**:
+  - `MaxFileSizeMB` - skip files larger than this size.
+  - `MaxFileAgeDays` - skip files older than N days.
+- **Cleanup**:
+  - `CleanupKeepLast` - keep only last N backups.
+  - `CleanupMaxAgeDays` - delete backups older than N days.
 
 ---
 
@@ -268,3 +307,4 @@ Below are three stages of restoration:
 ## 📜 License
 
 MIT License — free to use and modify with attribution.
+
