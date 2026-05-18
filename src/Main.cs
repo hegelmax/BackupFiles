@@ -56,6 +56,15 @@ namespace BackupFiles
 		public int PackedFiles;
 		public long PackedBytes;
 	}
+
+	class PathContext
+	{
+		public string ConfigFilePath;
+		public string ConfigFolder;
+		public string ExeFolder;
+		public string CurrentFolder;
+		public string RootFolder;
+	}
 	
 	class Program
 	{
@@ -146,7 +155,7 @@ namespace BackupFiles
 			}
 		}
 
-		static void InitLogging(Config config, string rootFolder) {
+		static void InitLogging(Config config, PathContext pathContext) {
 			if (config == null) {
 				return;
 			}
@@ -168,13 +177,10 @@ namespace BackupFiles
 				return;
 			}
 
-			string path = string.IsNullOrWhiteSpace(config.LogFilePath)
+			string path = string.IsNullOrWhiteSpace(GetPathValue(config.LogFilePath))
 				? "./backup.log"
-				: config.LogFilePath.Trim();
-
-			if (!Path.IsPathRooted(path)) {
-				path = Path.Combine(rootFolder, path);
-			}
+				: GetPathValue(config.LogFilePath).Trim();
+			path = ResolvePath(path, GetPathBase(config.LogFilePath, config.LegacyLogFilePathBase), pathContext, "root");
 
 			try {
 				string dir = Path.GetDirectoryName(path);
@@ -272,8 +278,8 @@ namespace BackupFiles
 				}
 				else {
 					// Old behavior - work with backup.config.xml next to EXE
-					string rootFolder = AppDomain.CurrentDomain.BaseDirectory;
-					string configPath = Path.Combine(rootFolder, "backup.config.xml");
+					string exeFolder = GetNormalizedDirectory(AppDomain.CurrentDomain.BaseDirectory);
+					string configPath = Path.Combine(exeFolder, "backup.config.xml");
 					LogInfo("Using default config file: {0}", configPath);
 					RunBackupWithConfig(configPath);
 				}
@@ -287,12 +293,13 @@ namespace BackupFiles
 		}
 		
 		static void RunBackupWithConfig(string configPath) {
-			string rootFolder = AppDomain.CurrentDomain.BaseDirectory;
+			configPath = Path.GetFullPath(configPath);
+			string exeFolder = GetNormalizedDirectory(AppDomain.CurrentDomain.BaseDirectory);
 			Config config;
 			
 			bool isDefaultConfig = string.Equals(
 				configPath,
-				Path.Combine(rootFolder, "backup.config.xml"),
+				Path.Combine(exeFolder, "backup.config.xml"),
 				StringComparison.OrdinalIgnoreCase
 			);
 			
@@ -309,14 +316,20 @@ namespace BackupFiles
 			}
 			
 			config = Deserialize<Config>(configPath);
+			EnsureConfigRuntimeDefaults(config);
 			
 			if (config.IsExample == 1) {
 				LogWarning("Config file is not set. Please update the 'is_example' parameter to 0.");
 				return;
 			}
 
-			InitLogging(config, rootFolder);
 			EnsureConfigDefaults(configPath, config);
+			PathContext pathContext = CreatePathContext(configPath, config);
+			InitLogging(config, pathContext);
+			LogDebug("Config file: {0}", pathContext.ConfigFilePath);
+			LogDebug("Exe folder: {0}", pathContext.ExeFolder);
+			LogDebug("Current folder: {0}", pathContext.CurrentFolder);
+			LogDebug("Root folder: {0}", pathContext.RootFolder);
 			EnableTls12();
 
 			string updateReason;
@@ -349,7 +362,12 @@ namespace BackupFiles
 			}
 			
 			// Ensure result path exists
-			string resultDir = Path.Combine(rootFolder, config.ResultPath);
+			string resultDir = ResolvePath(
+				GetPathValueOrDefault(config.ResultPath, "./backup"),
+				GetPathBase(config.ResultPath, config.LegacyResultPathBase),
+				pathContext,
+				"root"
+			);
 			try {
 				Directory.CreateDirectory(resultDir);
 			}
@@ -362,7 +380,7 @@ namespace BackupFiles
 			List<FileEntry> files;
 			var stats = new BackupStats { StartTime = DateTime.Now };
 			try {
-				files = GetFiles(config, rootFolder, extensionItems, stats);
+				files = GetFiles(config, pathContext, extensionItems, stats);
 			}
 			catch (Exception ex) {
 				LogError("Error while collecting files: {0}", ex.Message);
@@ -378,7 +396,7 @@ namespace BackupFiles
 			// Write result file
 			string resultFilePath;
 			try {
-				resultFilePath = GetResultFilePath(config, rootFolder);
+				resultFilePath = GetResultFilePath(config, pathContext);
 			}
 			catch (Exception ex) {
 				LogError("Error while generating result file path: {0}", ex.Message);
@@ -386,13 +404,13 @@ namespace BackupFiles
 			}
 			
 			if (config.DryRun) {
-				RunDryMode(files, stats, rootFolder);
+				RunDryMode(files, stats, pathContext.RootFolder);
 				PrintSummary(stats, true);
 				return;
 			}
 
 			try {
-				if (WriteResultFile(config, files, resultFilePath, rootFolder, stats)) {
+				if (WriteResultFile(config, files, resultFilePath, pathContext.RootFolder, stats)) {
 					// After successful backup, increment the version
 					IncrementVersion(configPath);
 					LogSuccess("Backup completed successfully. Files are packed in {0}", resultFilePath);
@@ -531,6 +549,12 @@ namespace BackupFiles
 		* *.min.js
 		* */node_modules/*
 		* backup.*.config.xml
+	Path base modes:
+		* root = relative to RootPath
+		* config = relative to config XML folder
+		* exe = relative to executable folder
+		* current = relative to process working directory
+	Default base is root.
 	5. Extensions - allowed file formats.
 	6. ResultPath - folder where backups will be saved.
 	7. ResultFilenameMask - pattern used to build the backup filename.
@@ -541,7 +565,7 @@ namespace BackupFiles
 	12. DryRun - preview files without writing a backup (true/false).
 	13. LogLevel - quiet | normal | verbose.
 	14. LogToFile - enable log file output (true/false).
-	15. LogFilePath - log file path (relative to exe if not absolute).
+	15. LogFilePath - log file path.
 	16. IncrementalBackup - include only files changed since last backup (true/false).
 	17. MaxFileSizeMB - exclude files larger than this size (0 disables).
 	18. MaxFileAgeDays - exclude files older than N days (0 disables).
@@ -557,7 +581,8 @@ END OF INSTRUCTIONS -->
   <ProjectName>MyProject</ProjectName>
   <Version>1.0.0</Version>
   <Created>{0}</Created>
-  <ResultPath>./backup</ResultPath><!-- folder where backups will be saved -->
+  <RootPath>./</RootPath>
+  <ResultPath base=""root"">./backup</ResultPath><!-- folder where backups will be saved -->
   <ResultFilenameMask>@PROJECTNAME_@VER_#YYYYMMDDhhmmss#.bak.txt</ResultFilenameMask>
 
   <!-- Backup filter and settings -->
@@ -578,15 +603,15 @@ END OF INSTRUCTIONS -->
   <DryRun>false</DryRun>
   <LogLevel>normal</LogLevel><!-- quiet | normal | verbose -->
   <LogToFile>false</LogToFile>
-  <LogFilePath>./backup.log</LogFilePath>
+  <LogFilePath base=""root"">./backup.log</LogFilePath>
 
   <!-- Folders to include - scanned recursively -->
   <includePaths>
     <includePath>./</includePath>
     <includePath>./public</includePath>
     <includePath>./src</includePath>
-    <includePath>./lib</includePath>
-    <includePath>./assets</includePath>
+    <includePath base=""config"">./lib</includePath>
+    <includePath base=""exe"">./assets</includePath>
     <includePath tree_only=""true"">*/res</includePath>
     <includePath tree_only=""true"">*/bin</includePath>
     <includePath tree_only=""true"">*/img</includePath>
@@ -603,6 +628,8 @@ END OF INSTRUCTIONS -->
     <excludePath>./.git</excludePath>
     <excludePath>./backup</excludePath>
     <excludePath>./archive</excludePath>
+    <excludePath base=""config"">./temp</excludePath>
+    <excludePath base=""exe"">./logs</excludePath>
     <excludePath>*/node_modules</excludePath>
     <excludePath>*/vendor</excludePath>
     <excludePath>*/bin</excludePath>
@@ -800,9 +827,145 @@ END OF INSTRUCTIONS -->
 				throw;
 			}
 		}
+
+		static void EnsureConfigRuntimeDefaults(Config config) {
+			if (config == null) {
+				return;
+			}
+
+			if (string.IsNullOrWhiteSpace(config.RootPath)) {
+				config.RootPath = "./";
+			}
+			EnsurePathConfigItem(config, true);
+			EnsurePathConfigItem(config, false);
+		}
+
+		static void EnsurePathConfigItem(Config config, bool isResultPath) {
+			if (config == null) {
+				return;
+			}
+
+			PathConfigItem item = isResultPath ? config.ResultPath : config.LogFilePath;
+			string defaultValue = isResultPath ? "./backup" : "./backup.log";
+			string legacyBase = isResultPath ? config.LegacyResultPathBase : config.LegacyLogFilePathBase;
+
+			if (item == null) {
+				item = new PathConfigItem();
+				if (isResultPath) {
+					config.ResultPath = item;
+				}
+				else {
+					config.LogFilePath = item;
+				}
+			}
+
+			if (string.IsNullOrWhiteSpace(item.Value)) {
+				item.Value = defaultValue;
+			}
+			if (string.IsNullOrWhiteSpace(item.Base)) {
+				item.Base = string.IsNullOrWhiteSpace(legacyBase) ? "root" : legacyBase.Trim();
+			}
+		}
+
+		static PathContext CreatePathContext(string configPath, Config config) {
+			string normalizedConfigPath = Path.GetFullPath(configPath);
+			string configFolder = GetNormalizedDirectory(Path.GetDirectoryName(normalizedConfigPath));
+			string exeFolder = GetNormalizedDirectory(AppDomain.CurrentDomain.BaseDirectory);
+			string currentFolder = GetNormalizedDirectory(Environment.CurrentDirectory);
+			string rootFolder = string.IsNullOrWhiteSpace(config != null ? config.RootPath : null)
+				? configFolder
+				: ResolvePath(config.RootPath, "config", new PathContext {
+					ConfigFilePath = normalizedConfigPath,
+					ConfigFolder = configFolder,
+					ExeFolder = exeFolder,
+					CurrentFolder = currentFolder,
+					RootFolder = configFolder
+				}, "config");
+
+			return new PathContext {
+				ConfigFilePath = normalizedConfigPath,
+				ConfigFolder = configFolder,
+				ExeFolder = exeFolder,
+				CurrentFolder = currentFolder,
+				RootFolder = GetNormalizedDirectory(rootFolder)
+			};
+		}
+
+		static string ResolvePath(string path, string baseMode, PathContext pathContext, string defaultBaseMode) {
+			if (string.IsNullOrWhiteSpace(path)) {
+				return GetBaseFolder(baseMode, pathContext, defaultBaseMode);
+			}
+
+			string trimmedPath = path.Trim();
+			if (Path.IsPathRooted(trimmedPath)) {
+				return Path.GetFullPath(trimmedPath);
+			}
+
+			string baseFolder = GetBaseFolder(baseMode, pathContext, defaultBaseMode);
+			return Path.GetFullPath(Path.Combine(baseFolder, trimmedPath));
+		}
+
+		static string GetBaseFolder(string baseMode, PathContext pathContext, string defaultBaseMode) {
+			string normalized = string.IsNullOrWhiteSpace(baseMode)
+				? defaultBaseMode
+				: baseMode.Trim().ToLowerInvariant();
+
+			switch (normalized) {
+				case "root":
+					return GetNormalizedDirectory(pathContext.RootFolder);
+				case "config":
+					return GetNormalizedDirectory(pathContext.ConfigFolder);
+				case "exe":
+					return GetNormalizedDirectory(pathContext.ExeFolder);
+				case "current":
+					return GetNormalizedDirectory(pathContext.CurrentFolder);
+				default:
+					throw new InvalidOperationException(string.Format(
+						CultureInfo.InvariantCulture,
+						"Unsupported base mode '{0}'. Supported values: root, config, exe, current.",
+						baseMode
+					));
+			}
+		}
+
+		static string GetNormalizedDirectory(string path) {
+			return Path.GetFullPath(string.IsNullOrWhiteSpace(path) ? "." : path);
+		}
+
+		static string GetPathValue(PathConfigItem item) {
+			return item == null ? null : item.Value;
+		}
+
+		static string GetPathValueOrDefault(PathConfigItem item, string defaultValue) {
+			return string.IsNullOrWhiteSpace(GetPathValue(item)) ? defaultValue : item.Value;
+		}
+
+		static string GetPathBase(PathConfigItem item, string legacyBase) {
+			if (item != null && !string.IsNullOrWhiteSpace(item.Base)) {
+				return item.Base;
+			}
+
+			return string.IsNullOrWhiteSpace(legacyBase) ? "root" : legacyBase.Trim();
+		}
+
+		static bool TryGetRelativePathInsideBase(string baseFolder, string path, out string relativePath) {
+			relativePath = null;
+			string candidate = GetRelativePath(baseFolder, path);
+			if (string.IsNullOrWhiteSpace(candidate)) {
+				return false;
+			}
+
+			if (candidate.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(candidate)) {
+				return false;
+			}
+
+			relativePath = candidate.Replace('\\', '/');
+			return true;
+		}
 		
-		static List<FileEntry> GetFiles(Config config, string rootFolder, List<ConfigItem> extensionItems, BackupStats stats) {
+		static List<FileEntry> GetFiles(Config config, PathContext pathContext, List<ConfigItem> extensionItems, BackupStats stats) {
 			var files = new List<FileEntry>();
+			string rootFolder = pathContext.RootFolder;
 			
 			var patternRules = BuildPatternRules(extensionItems);
 			DateTime incrementalCutoff;
@@ -818,7 +981,7 @@ END OF INSTRUCTIONS -->
 					continue;
 				}
 				
-				string fullPath = Path.Combine(rootFolder, includePath);
+				string fullPath = ResolvePath(includePath, includePathItem != null ? includePathItem.Base : null, pathContext, "root");
 				
 				if (!Directory.Exists(fullPath)) {
 					LogWarning("Include path does not exist: {0}", fullPath);
@@ -828,7 +991,7 @@ END OF INSTRUCTIONS -->
 				var includedFiles = Directory.GetFiles(fullPath, "*.*", SearchOption.AllDirectories);
 				foreach (var file in includedFiles) {
 					stats.ScannedFiles++;
-					if (IsFileExcluded(file, rootFolder, config.ExcludePaths)) {
+					if (IsFileExcluded(file, pathContext, config.ExcludePaths)) {
 						stats.ExcludedFiles++;
 						continue;
 					}
@@ -875,12 +1038,12 @@ END OF INSTRUCTIONS -->
 						includeFile = includeFile.Substring(0, includeFile.Length - 1).TrimEnd();
 					}
 					
-					string fullPath = Path.Combine(rootFolder, includeFile);
+					string fullPath = ResolvePath(includeFile, includeFileItem != null ? includeFileItem.Base : null, pathContext, "root");
 					
 					if (File.Exists(fullPath)) {
 						stats.ScannedFiles++;
 						// Если стоит "!", игнорируем ExcludePaths
-						if (forceInclude || !IsFileExcluded(fullPath, rootFolder, config.ExcludePaths)) {
+						if (forceInclude || !IsFileExcluded(fullPath, pathContext, config.ExcludePaths)) {
 							if (ShouldExcludeByLimits(fullPath, config, stats)) {
 								continue;
 							}
@@ -929,8 +1092,13 @@ END OF INSTRUCTIONS -->
 			return files;
 		}
 		
-		static string GetResultFilePath(Config config, string rootFolder) {
-			string resultPath = Path.Combine(rootFolder, config.ResultPath);
+		static string GetResultFilePath(Config config, PathContext pathContext) {
+			string resultPath = ResolvePath(
+				GetPathValueOrDefault(config.ResultPath, "./backup"),
+				GetPathBase(config.ResultPath, config.LegacyResultPathBase),
+				pathContext,
+				"root"
+			);
 			string resultFilename = config.ResultFilenameMask
 				.Replace("@PROJECTNAME", config.ProjectName)
 				.Replace("@VER", config.Version)
@@ -1031,30 +1199,41 @@ END OF INSTRUCTIONS -->
 				return;
 			}
 			
-			string resultPathValue = string.IsNullOrWhiteSpace(config.ResultPath) ? "./backup" : config.ResultPath;
+			string rootPathValue = string.IsNullOrWhiteSpace(config.RootPath) ? "./" : config.RootPath;
+			string resultPathValue = GetPathValueOrDefault(config.ResultPath, "./backup");
+			string resultPathBaseValue = GetPathBase(config.ResultPath, config.LegacyResultPathBase);
+			string logFilePathValue = GetPathValueOrDefault(config.LogFilePath, "./backup.log");
+			string logFilePathBaseValue = GetPathBase(config.LogFilePath, config.LegacyLogFilePathBase);
 			string resultMaskValue = string.IsNullOrWhiteSpace(config.ResultFilenameMask)
 				? "@PROJECTNAME_@VER_#YYYYMMDDhhmmss#.bak.txt"
 				: config.ResultFilenameMask;
 			
+			changed |= EnsureElement(doc, root, "RootPath", rootPathValue);
 			changed |= EnsureElement(doc, root, "UpdateCheckMinutes", config.UpdateCheckMinutes.ToString(CultureInfo.InvariantCulture));
 			changed |= EnsureElement(doc, root, "UpdateCheckTimeoutSeconds", config.UpdateCheckTimeoutSeconds.ToString(CultureInfo.InvariantCulture));
 			changed |= EnsureElement(doc, root, "UpdateCheckVerbose", config.UpdateCheckVerbose.ToString().ToLowerInvariant());
 			changed |= EnsureElement(doc, root, "DryRun", config.DryRun.ToString().ToLowerInvariant());
 			changed |= EnsureElement(doc, root, "LogLevel", config.LogLevel ?? "normal");
 			changed |= EnsureElement(doc, root, "LogToFile", config.LogToFile.ToString().ToLowerInvariant());
-			changed |= EnsureElement(doc, root, "LogFilePath", config.LogFilePath ?? "./backup.log");
+			changed |= EnsurePathElement(doc, root, "LogFilePath", logFilePathValue, logFilePathBaseValue);
 			changed |= EnsureElement(doc, root, "IncrementalBackup", config.IncrementalBackup.ToString().ToLowerInvariant());
 			changed |= EnsureElement(doc, root, "MaxFileSizeMB", config.MaxFileSizeMB.ToString(CultureInfo.InvariantCulture));
 			changed |= EnsureElement(doc, root, "MaxFileAgeDays", config.MaxFileAgeDays.ToString(CultureInfo.InvariantCulture));
 			changed |= EnsureElement(doc, root, "CleanupKeepLast", config.CleanupKeepLast.ToString(CultureInfo.InvariantCulture));
 			changed |= EnsureElement(doc, root, "CleanupMaxAgeDays", config.CleanupMaxAgeDays.ToString(CultureInfo.InvariantCulture));
-			changed |= EnsureElement(doc, root, "ResultPath", resultPathValue);
+			changed |= EnsurePathElement(doc, root, "ResultPath", resultPathValue, resultPathBaseValue);
 			changed |= EnsureElement(doc, root, "ResultFilenameMask", resultMaskValue);
 			changed |= EnsureElement(doc, root, "EnableZip", config.EnableZip.ToString().ToLowerInvariant());
 			changed |= EnsureElement(doc, root, "DeleteUnziped", config.DeleteUnziped.ToString().ToLowerInvariant());
 			
 			if (changed) {
-				config.ResultPath = resultPathValue;
+				config.RootPath = rootPathValue;
+				EnsurePathConfigItem(config, true);
+				EnsurePathConfigItem(config, false);
+				config.ResultPath.Value = resultPathValue;
+				config.ResultPath.Base = resultPathBaseValue;
+				config.LogFilePath.Value = logFilePathValue;
+				config.LogFilePath.Base = logFilePathBaseValue;
 				config.ResultFilenameMask = resultMaskValue;
 				doc.Save(configPath);
 				LogInfo("Config updated with missing defaults: {0}", configPath);
@@ -1068,6 +1247,20 @@ END OF INSTRUCTIONS -->
 			
 			var element = doc.CreateElement(name);
 			element.InnerText = value ?? string.Empty;
+			InsertWithIndent(doc, root, element);
+			return true;
+		}
+
+		static bool EnsurePathElement(XmlDocument doc, XmlElement root, string name, string value, string baseMode) {
+			if (root[name] != null) {
+				return false;
+			}
+
+			var element = doc.CreateElement(name);
+			element.InnerText = value ?? string.Empty;
+			if (!string.IsNullOrWhiteSpace(baseMode)) {
+				element.SetAttribute("base", baseMode);
+			}
 			InsertWithIndent(doc, root, element);
 			return true;
 		}
@@ -1889,37 +2082,48 @@ END OF INSTRUCTIONS -->
 			return Regex.IsMatch(text, regexPattern, RegexOptions.IgnoreCase);
 		}
 		
-		static bool IsFileExcluded(string filePath, string rootFolder, List<string> excludePaths) {
+		static bool IsFileExcluded(string filePath, PathContext pathContext, List<ConfigItem> excludePaths) {
 			if (excludePaths == null || excludePaths.Count == 0) return false;
 			
-			string fullFilePath  = Path.GetFullPath(filePath);
-			string relativePath  = GetRelativePath(rootFolder, fullFilePath).Replace('\\', '/');
+			string fullFilePath = Path.GetFullPath(filePath);
 			
-			foreach (var raw in excludePaths) {
+			foreach (var item in excludePaths) {
+				string raw = item == null ? null : item.Value;
 				if (string.IsNullOrWhiteSpace(raw)) continue;
 				
 				string pattern = raw.Trim();
+				string baseMode = item == null ? null : item.Base;
 				
 				bool hasWildcard = pattern.Contains("*") || pattern.Contains("?");
 				
 				if (hasWildcard) {
-					// wildcard by relative path
-					string normalizedPattern = pattern.Replace('\\', '/');
-					if (WildcardMatch(relativePath, normalizedPattern)) {
+					string baseFolder = GetBaseFolder(baseMode, pathContext, "root");
+					string relativePath;
+					if (TryGetRelativePathInsideBase(baseFolder, fullFilePath, out relativePath) &&
+						WildcardMatch(relativePath, pattern)) {
 						return true;
 					}
 					
-					// If pattern points to a folder, also match anything under it.
-					if (!normalizedPattern.EndsWith("*")) {
-						string folderPattern = normalizedPattern.TrimEnd('/') + "/*";
-						if (WildcardMatch(relativePath, folderPattern)) {
+					if (TryGetRelativePathInsideBase(baseFolder, fullFilePath, out relativePath)) {
+						string normalizedPattern = pattern.Replace('\\', '/');
+						if (!normalizedPattern.EndsWith("*", StringComparison.Ordinal)) {
+							string folderPattern = normalizedPattern.TrimEnd('/') + "/*";
+							if (WildcardMatch(relativePath, folderPattern)) {
+								return true;
+							}
+						}
+					}
+
+					if (pattern.StartsWith("./", StringComparison.Ordinal) || pattern.StartsWith(".\\", StringComparison.Ordinal)) {
+						string anchoredPattern = ResolveWildcardPath(pattern, baseMode, pathContext, "root");
+						string normalizedFullPath = fullFilePath.Replace('\\', '/');
+						if (WildcardMatch(normalizedFullPath, anchoredPattern)) {
 							return true;
 						}
 					}
 				}
 				else {
-					// by full path prefix
-					string excludeFull = Path.GetFullPath(Path.Combine(rootFolder, pattern));
+					string excludeFull = ResolvePath(pattern, baseMode, pathContext, "root");
 					if (fullFilePath.StartsWith(excludeFull, StringComparison.OrdinalIgnoreCase)) {
 						return true;
 					}
@@ -1927,6 +2131,22 @@ END OF INSTRUCTIONS -->
 			}
 			
 			return false;
+		}
+
+		static string ResolveWildcardPath(string path, string baseMode, PathContext pathContext, string defaultBaseMode) {
+			if (string.IsNullOrWhiteSpace(path)) {
+				return string.Empty;
+			}
+
+			string trimmedPath = path.Trim().Replace('\\', '/');
+			if (Path.IsPathRooted(trimmedPath)) {
+				return trimmedPath;
+			}
+
+			string baseFolder = GetBaseFolder(baseMode, pathContext, defaultBaseMode).Replace('\\', '/').TrimEnd('/');
+			string relativePath = trimmedPath.TrimStart('.');
+			relativePath = relativePath.TrimStart('/');
+			return baseFolder + "/" + relativePath;
 		}
 	}
 }

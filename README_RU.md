@@ -71,7 +71,7 @@ BackupFiles/
 
 ### 🔧 Пользовательский конфиг `backup.config.xml`
 
-Пользовательские настройки бэкапа задаются в файле **`backup.config.xml`**, который располагается рядом с исполняемым файлом.
+Пользовательские настройки бэкапа задаются в файле **`backup.config.xml`**. Конфиг может лежать рядом с `exe`, в корне проекта или в отдельной папке.
 
 Если конфиг не найден, при первом запуске автоматически создаётся шаблон с подробной инструкцией в комментарии:
 
@@ -92,7 +92,7 @@ BackupFiles/
 12. DryRun - preview files without writing a backup (true/false).
 13. LogLevel - quiet | normal | verbose.
 14. LogToFile - enable log file output (true/false).
-15. LogFilePath - log file path (relative to exe if not absolute).
+15. LogFilePath - log file path.
 16. IncrementalBackup - include only files changed since last backup (true/false).
 17. MaxFileSizeMB - exclude files larger than this size (0 disables).
 18. MaxFileAgeDays - exclude files older than N days (0 disables).
@@ -100,6 +100,12 @@ BackupFiles/
 20. CleanupMaxAgeDays - delete backups older than N days (0 disables).
 21. IsExample=1 disables work. Set it to 0 before using.
 22. To use this config, drag & drop it onto the BackupFiles.exe application.
+Path base modes:
+  - root = relative to RootPath
+  - config = relative to config XML folder
+  - exe = relative to executable folder
+  - current = relative to process working directory
+Default base is root.
 END OF INSTRUCTIONS -->
 ```
 
@@ -110,13 +116,14 @@ END OF INSTRUCTIONS -->
   <ProjectName>MyProject</ProjectName>
   <Version>1.0.0</Version>
   <Created>YYYY-MM-DD hh:mm:ss</Created>
+  <RootPath>./</RootPath>
   <UpdateCheckMinutes>1440</UpdateCheckMinutes>
   <UpdateCheckTimeoutSeconds>5</UpdateCheckTimeoutSeconds>
   <UpdateCheckVerbose>false</UpdateCheckVerbose>
   <DryRun>false</DryRun>
   <LogLevel>normal</LogLevel>
   <LogToFile>false</LogToFile>
-  <LogFilePath>./backup.log</LogFilePath>
+  <LogFilePath base="root">./backup.log</LogFilePath>
   <IncrementalBackup>false</IncrementalBackup>
   <MaxFileSizeMB>0</MaxFileSizeMB>
   <MaxFileAgeDays>0</MaxFileAgeDays>
@@ -130,13 +137,16 @@ END OF INSTRUCTIONS -->
 
   <includePaths>
     <includePath>./include</includePath>
+    <includePath base="config">./lib</includePath>
+    <includePath base="exe">./assets</includePath>
   </includePaths>
 
   <excludePaths>
     <excludePath>./exclude</excludePath>
+    <excludePath base="config">./temp</excludePath>
   </excludePaths>
 
-  <ResultPath>./output</ResultPath>
+  <ResultPath base="root">./output</ResultPath>
   <ResultFilenameMask>@PROJECTNAME_@VER_#YYYYMMDDhhmmss#.bak.txt</ResultFilenameMask>
 
   <EnableZip>true</EnableZip>
@@ -161,6 +171,9 @@ END OF INSTRUCTIONS -->
   - `./backup.api.config.xml !` — будет включён всегда, даже если совпадает с маской в `ExcludePaths`  
 - **Несколько конфигов**:
   - Можно хранить несколько конфигов (`backup.web.config.xml`, `backup.api.config.xml` и т.п.) рядом с приложением и запускать бэкап с нужным конфигом, просто перетаскивая XML на `BackupFiles.exe`.
+- **Разрешение путей**:
+  - `RootPath` задаёт корень проекта.
+  - Относительные пути по умолчанию используют `root`, а для переопределения можно использовать `base="config"`, `base="exe"` и `base="current"`.
 - **Проверка обновлений**:
   - `UpdateCheckMinutes` - интервал проверки в минутах (0 отключает).
   - `UpdateCheckTimeoutSeconds` - таймаут запроса в секундах.

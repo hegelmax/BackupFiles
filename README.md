@@ -71,7 +71,7 @@ Main build parameters are defined in **`app.config`**:
 
 ### 🔧 User Configuration File `backup.config.xml`
 
-User-level backup settings are defined in **`backup.config.xml`** located next to the executable.
+User-level backup settings are defined in **`backup.config.xml`**. The config can live next to the executable, in the project root, or in any separate folder.
 
 If the file is missing, the application will create an auto-generated template on first launch, which now includes an instructional comment block:
 
@@ -92,7 +92,7 @@ If the file is missing, the application will create an auto-generated template o
 12. DryRun - preview files without writing a backup (true/false).
 13. LogLevel - quiet | normal | verbose.
 14. LogToFile - enable log file output (true/false).
-15. LogFilePath - log file path (relative to exe if not absolute).
+15. LogFilePath - log file path.
 16. IncrementalBackup - include only files changed since last backup (true/false).
 17. MaxFileSizeMB - exclude files larger than this size (0 disables).
 18. MaxFileAgeDays - exclude files older than N days (0 disables).
@@ -100,6 +100,12 @@ If the file is missing, the application will create an auto-generated template o
 20. CleanupMaxAgeDays - delete backups older than N days (0 disables).
 21. IsExample=1 disables work. Set it to 0 before using.
 22. To use this config, drag & drop it onto the BackupFiles.exe application.
+Path base modes:
+  - root = relative to RootPath
+  - config = relative to config XML folder
+  - exe = relative to executable folder
+  - current = relative to process working directory
+Default base is root.
 END OF INSTRUCTIONS -->
 ```
 
@@ -110,13 +116,14 @@ Example template (simplified):
   <ProjectName>MyProject</ProjectName>
   <Version>1.0.0</Version>
   <Created>YYYY-MM-DD hh:mm:ss</Created>
+  <RootPath>./</RootPath>
   <UpdateCheckMinutes>1440</UpdateCheckMinutes>
   <UpdateCheckTimeoutSeconds>5</UpdateCheckTimeoutSeconds>
   <UpdateCheckVerbose>false</UpdateCheckVerbose>
   <DryRun>false</DryRun>
   <LogLevel>normal</LogLevel>
   <LogToFile>false</LogToFile>
-  <LogFilePath>./backup.log</LogFilePath>
+  <LogFilePath base="root">./backup.log</LogFilePath>
   <IncrementalBackup>false</IncrementalBackup>
   <MaxFileSizeMB>0</MaxFileSizeMB>
   <MaxFileAgeDays>0</MaxFileAgeDays>
@@ -130,13 +137,16 @@ Example template (simplified):
 
   <includePaths>
     <includePath>./include</includePath>
+    <includePath base="config">./lib</includePath>
+    <includePath base="exe">./assets</includePath>
   </includePaths>
 
   <excludePaths>
     <excludePath>./exclude</excludePath>
+    <excludePath base="config">./temp</excludePath>
   </excludePaths>
 
-  <ResultPath>./output</ResultPath>
+  <ResultPath base="root">./output</ResultPath>
   <ResultFilenameMask>@PROJECTNAME_@VER_#YYYYMMDDhhmmss#.bak.txt</ResultFilenameMask>
 
   <EnableZip>true</EnableZip>
@@ -161,6 +171,9 @@ Rules are applied from the longest mask to the shortest, so `*.min.js` wins over
   - `./backup.api.config.xml !` – included **even if** it matches `ExcludePaths`
 - **Multiple configs**:
   - You can maintain several XML configs (e.g. `backup.web.config.xml`, `backup.api.config.xml`) next to the application and run a backup with any of them by drag & dropping the config onto `BackupFiles.exe`.
+- **Path resolution**:
+  - `RootPath` defines the project root.
+  - Relative paths use `root` by default and can be overridden with `base="config"`, `base="exe"`, and `base="current"`.
 - **Update check**:
   - `UpdateCheckMinutes` - interval in minutes (0 disables).
   - `UpdateCheckTimeoutSeconds` - HTTP timeout in seconds.

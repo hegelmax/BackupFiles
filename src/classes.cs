@@ -13,7 +13,9 @@ namespace BackupFiles
 			DryRun = false;
 			LogLevel = "normal";
 			LogToFile = false;
-			LogFilePath = "./backup.log";
+			RootPath = "./";
+			ResultPath = new PathConfigItem { Value = "./backup", Base = "root" };
+			LogFilePath = new PathConfigItem { Value = "./backup.log", Base = "root" };
 			IncrementalBackup = false;
 			MaxFileSizeMB = 0;
 			MaxFileAgeDays = 0;
@@ -26,7 +28,8 @@ namespace BackupFiles
 		public string ProjectName { get; set; }
 		public string Version { get; set; }
 		public string Created { get; set; }
-		public string ResultPath { get; set; }
+		public string RootPath { get; set; }
+		public PathConfigItem ResultPath { get; set; }
 		public string ResultFilenameMask { get; set; }
 		public bool EnableZip { get; set; }
 		public bool DeleteUnziped { get; set; }
@@ -38,7 +41,13 @@ namespace BackupFiles
 		public bool DryRun { get; set; }
 		public string LogLevel { get; set; }
 		public bool LogToFile { get; set; }
-		public string LogFilePath { get; set; }
+		public PathConfigItem LogFilePath { get; set; }
+
+		[XmlElement("ResultPathBase")]
+		public string LegacyResultPathBase { get; set; }
+
+		[XmlElement("LogFilePathBase")]
+		public string LegacyLogFilePathBase { get; set; }
 
 		public bool IncrementalBackup { get; set; }
 		
@@ -58,7 +67,7 @@ namespace BackupFiles
 
 		[XmlArray("excludePaths")]
 		[XmlArrayItem("excludePath")]
-		public List<string> ExcludePaths { get; set; }
+		public List<ConfigItem> ExcludePaths { get; set; }
 
 		[XmlElement("extensions")]
 		public ExtensionsConfig Extensions { get; set; }
@@ -76,8 +85,20 @@ namespace BackupFiles
 		[XmlAttribute("tree_only")]
 		public bool TreeOnly { get; set; }
 
+		[XmlAttribute("base")]
+		public string Base { get; set; }
+
 		[XmlAttribute("enable")]
 		public bool Enable { get; set; }
+	}
+
+	public class PathConfigItem
+	{
+		[XmlText]
+		public string Value { get; set; }
+
+		[XmlAttribute("base")]
+		public string Base { get; set; }
 	}
 
 	public class ExtensionsConfig
