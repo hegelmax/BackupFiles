@@ -15,8 +15,8 @@ Recent versions add multiple configuration files, wildcard-based exclude rules, 
 - ✨ Wildcard-based exclude rules (e.g. `*.min.js`, `*/node_modules/*`, `backup.*.config.xml`)  
 - ❗ Forced include files via `IncludeFiles` entries ending with `!` (ignore exclude rules)  
 - 🧰 Multiple configs:
-  - Run without arguments → use default `backup.config.xml`
-  - Drag & drop any XML config onto `BackupFiles.exe` → use that config for backup
+  - Run without arguments → use `default.backupconfig`, fallback to legacy `backup.config.xml`
+  - Drag & drop any `.backupconfig` or XML config onto `BackupFiles.exe` → use that config for backup
 - ?? Incremental backups (only files changed since last backup)
 - ?? Dry-run mode (preview without writing a backup)
 - ?? Log levels (quiet/normal/verbose) + optional log file
@@ -69,9 +69,9 @@ Main build parameters are defined in **`app.config`**:
 
 ---
 
-### 🔧 User Configuration File `backup.config.xml`
+### 🔧 User Configuration File `default.backupconfig`
 
-User-level backup settings are defined in **`backup.config.xml`**. The config can live next to the executable, in the project root, or in any separate folder.
+User-level backup settings are defined in **`default.backupconfig`**. The config can live next to the executable, in the project root, or in any separate folder.
 
 If the file is missing, the application will create an auto-generated template on first launch, which now includes an instructional comment block:
 
@@ -170,7 +170,7 @@ Rules are applied from the longest mask to the shortest, so `*.min.js` wins over
   - `./backup.web.config.xml` – included only if it does **not** match exclude patterns
   - `./backup.api.config.xml !` – included **even if** it matches `ExcludePaths`
 - **Multiple configs**:
-  - You can maintain several XML configs (e.g. `backup.web.config.xml`, `backup.api.config.xml`) next to the application and run a backup with any of them by drag & dropping the config onto `BackupFiles.exe`.
+  - You can maintain several config files (e.g. `default.backupconfig`, `backup.web.config.xml`, `backup.api.config.xml`) next to the application and run a backup with any of them by drag & dropping the config onto `BackupFiles.exe`.
 - **Path resolution**:
   - `RootPath` defines the project root.
   - Relative paths use `root` by default and can be overridden with `base="config"`, `base="exe"`, and `base="current"`.
@@ -199,7 +199,7 @@ Rules are applied from the longest mask to the shortest, so `*.min.js` wins over
 
 ### 1️⃣ Create a Backup (default config)
 
-1. Make sure `backup.config.xml` is present and configured.  
+1. Make sure `default.backupconfig` is present and configured.  
 2. Run the program **without arguments**:
 
    ```bash

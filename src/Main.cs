@@ -6,10 +6,13 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Reflection;
+using System.Security;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using System.Xml.Serialization;
+using Microsoft.Win32;
 
 namespace BackupFiles
 {
@@ -40,6 +43,13 @@ namespace BackupFiles
 		Verbose = 2
 	}
 
+	enum AssociationStatus
+	{
+		NotRegistered = 0,
+		RegisteredToCurrentExe = 1,
+		RegisteredToOtherExe = 2
+	}
+
 	class BackupStats
 	{
 		public DateTime StartTime;
@@ -68,6 +78,11 @@ namespace BackupFiles
 	
 	class Program
 	{
+		const string DefaultConfigFileName = "default.backupconfig";
+		const string LegacyDefaultConfigFileName = "backup.config.xml";
+		const string AssociationExtension = ".backupconfig";
+		const string AssociationProgId = "BackupFiles.Config";
+
 		static LogLevel _logLevel = LogLevel.Normal;
 		static StreamWriter _logWriter;
 		static string _logFilePath;
@@ -264,24 +279,24 @@ namespace BackupFiles
 			try {
 				if (args.Length != 0) {
 					string firstArg = args[0];
-					
-					// If we drag XML, we consider it a config and run a backup
-					if (File.Exists(firstArg) &&
-						string.Equals(Path.GetExtension(firstArg), ".xml", StringComparison.OrdinalIgnoreCase)) {
+
+					if (string.Equals(firstArg, "--register-association", StringComparison.OrdinalIgnoreCase)) {
+						RegisterFileAssociation();
+					}
+					else if (string.Equals(firstArg, "--unregister-association", StringComparison.OrdinalIgnoreCase)) {
+						UnregisterFileAssociation();
+					}
+					else if (IsConfigFile(firstArg)) {
 						LogInfo("Using config file: {0}", firstArg);
 						RunBackupWithConfig(firstArg);
 					}
 					else {
-						// Otherwise, this is a txt/zip backup, we work in recovery mode
 						RunRestoreFromBackup(firstArg);
 					}
 				}
 				else {
-					// Old behavior - work with backup.config.xml next to EXE
-					string exeFolder = GetNormalizedDirectory(AppDomain.CurrentDomain.BaseDirectory);
-					string configPath = Path.Combine(exeFolder, "backup.config.xml");
-					LogInfo("Using default config file: {0}", configPath);
-					RunBackupWithConfig(configPath);
+					EnsureFileAssociationInteractive();
+					RunBackupWithDefaultConfig();
 				}
 			}
 			catch (Exception ex) {
@@ -291,6 +306,38 @@ namespace BackupFiles
 			WaitForUserInput();
 			CloseLogWriter();
 		}
+
+		static void RunBackupWithDefaultConfig() {
+			string exeFolder = GetNormalizedDirectory(AppDomain.CurrentDomain.BaseDirectory);
+			string defaultConfigPath = Path.Combine(exeFolder, DefaultConfigFileName);
+			string legacyConfigPath = Path.Combine(exeFolder, LegacyDefaultConfigFileName);
+
+			if (File.Exists(defaultConfigPath)) {
+				LogInfo("Using default config file: {0}", defaultConfigPath);
+				RunBackupWithConfig(defaultConfigPath);
+				return;
+			}
+
+			if (File.Exists(legacyConfigPath)) {
+				LogInfo("Using legacy default config file: {0}", legacyConfigPath);
+				RunBackupWithConfig(legacyConfigPath);
+				return;
+			}
+
+			CreateConfigTemplate(defaultConfigPath);
+			LogWarning("Default config template created: {0}", defaultConfigPath);
+			LogWarning("Please configure it and update the 'is_example' parameter to 0.");
+		}
+
+		static bool IsConfigFile(string path) {
+			if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) {
+				return false;
+			}
+
+			string extension = Path.GetExtension(path);
+			return string.Equals(extension, ".xml", StringComparison.OrdinalIgnoreCase)
+				|| string.Equals(extension, AssociationExtension, StringComparison.OrdinalIgnoreCase);
+		}
 		
 		static void RunBackupWithConfig(string configPath) {
 			configPath = Path.GetFullPath(configPath);
@@ -299,7 +346,11 @@ namespace BackupFiles
 			
 			bool isDefaultConfig = string.Equals(
 				configPath,
-				Path.Combine(exeFolder, "backup.config.xml"),
+				Path.Combine(exeFolder, DefaultConfigFileName),
+				StringComparison.OrdinalIgnoreCase
+			) || string.Equals(
+				configPath,
+				Path.Combine(exeFolder, LegacyDefaultConfigFileName),
 				StringComparison.OrdinalIgnoreCase
 			);
 			
@@ -424,6 +475,146 @@ namespace BackupFiles
 
 			PrintSummary(stats, false);
 		}
+
+		static void EnsureFileAssociationInteractive() {
+			try {
+				AssociationStatus status = GetFileAssociationStatus();
+				if (status == AssociationStatus.RegisteredToCurrentExe) {
+					return;
+				}
+
+				if (status == AssociationStatus.NotRegistered) {
+					if (AskYesNo("File association for .backupconfig is not registered." + Environment.NewLine + "Register it for this EXE? [Y/N]")) {
+						RegisterFileAssociation();
+					}
+					return;
+				}
+
+				string registeredPath = GetAssociatedExecutablePath();
+				string currentExePath = GetCurrentExecutablePath();
+				string message = string.Format(
+					CultureInfo.InvariantCulture,
+					".backupconfig is currently associated with another executable:{0}{1}{0}{0}Replace association with this EXE?{0}{2}{0}{0}[Y/N]",
+					Environment.NewLine,
+					string.IsNullOrWhiteSpace(registeredPath) ? "(unknown)" : registeredPath,
+					currentExePath
+				);
+				if (AskYesNo(message)) {
+					RegisterFileAssociation();
+				}
+			}
+			catch (Exception ex) {
+				LogWarning("File association check failed: {0}", ex.Message);
+			}
+		}
+
+		static AssociationStatus GetFileAssociationStatus() {
+			try {
+				string associatedExePath = GetAssociatedExecutablePath();
+				if (string.IsNullOrWhiteSpace(associatedExePath)) {
+					return AssociationStatus.NotRegistered;
+				}
+
+				string currentExePath = GetCurrentExecutablePath();
+				string normalizedAssociated = Path.GetFullPath(associatedExePath);
+				string normalizedCurrent = Path.GetFullPath(currentExePath);
+				return string.Equals(normalizedAssociated, normalizedCurrent, StringComparison.OrdinalIgnoreCase)
+					? AssociationStatus.RegisteredToCurrentExe
+					: AssociationStatus.RegisteredToOtherExe;
+			}
+			catch (Exception ex) {
+				throw new InvalidOperationException("Unable to determine file association status.", ex);
+			}
+		}
+
+		static string GetAssociatedExecutablePath() {
+			try {
+				using (RegistryKey classesKey = Registry.CurrentUser.OpenSubKey(@"Software\Classes\" + AssociationExtension)) {
+					string progId = classesKey == null ? null : classesKey.GetValue(null) as string;
+					if (string.IsNullOrWhiteSpace(progId)) {
+						return null;
+					}
+
+					using (RegistryKey commandKey = Registry.CurrentUser.OpenSubKey(@"Software\Classes\" + progId + @"\shell\open\command")) {
+						string command = commandKey == null ? null : commandKey.GetValue(null) as string;
+						return ExtractExecutablePathFromCommand(command);
+					}
+				}
+			}
+			catch (Exception ex) {
+				throw new InvalidOperationException("Unable to read file association from registry.", ex);
+			}
+		}
+
+		static bool AskYesNo(string message) {
+			while (true) {
+				Console.WriteLine(message);
+				string input = Console.ReadLine();
+				if (input == null) {
+					return false;
+				}
+
+				string normalized = input.Trim().ToLowerInvariant();
+				if (normalized == "y" || normalized == "yes") {
+					return true;
+				}
+				if (normalized == "n" || normalized == "no") {
+					return false;
+				}
+
+				Console.WriteLine("Please answer Y or N.");
+			}
+		}
+
+		static string ExtractExecutablePathFromCommand(string command) {
+			if (string.IsNullOrWhiteSpace(command)) {
+				return null;
+			}
+
+			string trimmed = command.Trim();
+			Match quoted = Regex.Match(trimmed, "^\"(?<path>[^\"]+)\"", RegexOptions.IgnoreCase);
+			if (quoted.Success) {
+				return quoted.Groups["path"].Value;
+			}
+
+			Match unquoted = Regex.Match(trimmed, @"^(?<path>\S+?\.exe)(?:\s|$)", RegexOptions.IgnoreCase);
+			return unquoted.Success ? unquoted.Groups["path"].Value : null;
+		}
+
+		static void RegisterFileAssociation() {
+			try {
+				string currentExePath = GetCurrentExecutablePath();
+				string command = string.Format(CultureInfo.InvariantCulture, "\"{0}\" \"%1\"", currentExePath);
+
+				using (RegistryKey extensionKey = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + AssociationExtension)) {
+					extensionKey.SetValue(null, AssociationProgId, RegistryValueKind.String);
+				}
+
+				using (RegistryKey commandKey = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + AssociationProgId + @"\shell\open\command")) {
+					commandKey.SetValue(null, command, RegistryValueKind.String);
+				}
+
+				LogSuccess("File association registered for {0}", AssociationExtension);
+			}
+			catch (Exception ex) {
+				LogWarning("Failed to register file association: {0}", ex.Message);
+			}
+		}
+
+		static void UnregisterFileAssociation() {
+			try {
+				Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\" + AssociationExtension, false);
+				Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\" + AssociationProgId, false);
+				LogSuccess("File association removed for {0}", AssociationExtension);
+			}
+			catch (Exception ex) {
+				LogWarning("Failed to unregister file association: {0}", ex.Message);
+			}
+		}
+
+		static string GetCurrentExecutablePath() {
+			return Path.GetFullPath(Assembly.GetExecutingAssembly().Location);
+		}
 		
 		static void RunRestoreFromBackup(string filePath) {
 			try {
@@ -539,6 +730,9 @@ namespace BackupFiles
 		
 		static void CreateConfigTemplate(string configPath) {
 			try {
+				string configFolder = GetNormalizedDirectory(Path.GetDirectoryName(Path.GetFullPath(configPath)));
+				string currentFolder = GetNormalizedDirectory(Environment.CurrentDirectory);
+				string suggestedRootPath = GetSuggestedTemplateRootPath(configFolder, currentFolder);
 				string xml = string.Format(CultureInfo.InvariantCulture, @"<?xml version=""1.0"" encoding=""utf-8""?>
 <!-- HOW TO USE THIS FILE
 	1. This file defines which files and folders will be included in your backup.
@@ -581,7 +775,7 @@ END OF INSTRUCTIONS -->
   <ProjectName>MyProject</ProjectName>
   <Version>1.0.0</Version>
   <Created>{0}</Created>
-  <RootPath>./</RootPath>
+  <RootPath>{1}</RootPath>
   <ResultPath base=""root"">./backup</ResultPath><!-- folder where backups will be saved -->
   <ResultFilenameMask>@PROJECTNAME_@VER_#YYYYMMDDhhmmss#.bak.txt</ResultFilenameMask>
 
@@ -608,19 +802,11 @@ END OF INSTRUCTIONS -->
   <!-- Folders to include - scanned recursively -->
   <includePaths>
     <includePath>./</includePath>
-    <includePath>./public</includePath>
-    <includePath>./src</includePath>
-    <includePath base=""config"">./lib</includePath>
-    <includePath base=""exe"">./assets</includePath>
-    <includePath tree_only=""true"">*/res</includePath>
-    <includePath tree_only=""true"">*/bin</includePath>
-    <includePath tree_only=""true"">*/img</includePath>
   </includePaths>
   
   <!-- Specific files added manually -->
   <includeFiles>
-    <includeFile>./backup.config.xml</includeFile>
-    <includeFile>./backup.web.config.xml !</includeFile>
+    <includeFile base=""config"">./default.backupconfig</includeFile>
   </includeFiles>
   
   <!-- Wildcard patterns for files/folders to exclude -->
@@ -804,7 +990,9 @@ END OF INSTRUCTIONS -->
       <extension>.log</extension>
     </group>
   </extensions>
-</configuration>", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
+</configuration>",
+					DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+					SecurityElement.Escape(suggestedRootPath));
 
 				File.WriteAllText(configPath, xml);
 
@@ -932,6 +1120,24 @@ END OF INSTRUCTIONS -->
 			return Path.GetFullPath(string.IsNullOrWhiteSpace(path) ? "." : path);
 		}
 
+		static string GetSuggestedTemplateRootPath(string configFolder, string currentFolder) {
+			if (string.IsNullOrWhiteSpace(configFolder) || string.IsNullOrWhiteSpace(currentFolder)) {
+				return "./";
+			}
+
+			string relativePath = GetRelativePath(configFolder, currentFolder);
+			if (string.IsNullOrWhiteSpace(relativePath) || string.Equals(relativePath, ".", StringComparison.OrdinalIgnoreCase)) {
+				return "./";
+			}
+
+			string normalized = relativePath.Replace('\\', '/');
+			if (!normalized.StartsWith(".", StringComparison.Ordinal)) {
+				normalized = "./" + normalized;
+			}
+
+			return normalized;
+		}
+
 		static string GetPathValue(PathConfigItem item) {
 			return item == null ? null : item.Value;
 		}
@@ -946,6 +1152,59 @@ END OF INSTRUCTIONS -->
 			}
 
 			return string.IsNullOrWhiteSpace(legacyBase) ? "root" : legacyBase.Trim();
+		}
+
+		static bool HasWildcard(string value) {
+			return !string.IsNullOrWhiteSpace(value) && (value.IndexOf('*') >= 0 || value.IndexOf('?') >= 0);
+		}
+
+		static IEnumerable<string> ResolveIncludeDirectories(string includePath, string baseMode, PathContext pathContext) {
+			var results = new List<string>();
+			if (string.IsNullOrWhiteSpace(includePath)) {
+				return results;
+			}
+
+			string trimmedPath = includePath.Trim();
+			if (!HasWildcard(trimmedPath)) {
+				string fullPath = ResolvePath(trimmedPath, baseMode, pathContext, "root");
+				if (!Directory.Exists(fullPath)) {
+					LogWarning("Include path does not exist: {0}", fullPath);
+					return results;
+				}
+
+				results.Add(fullPath);
+				return results;
+			}
+
+			if (Path.IsPathRooted(trimmedPath)) {
+				LogWarning("Wildcard include path is not supported for absolute paths: {0}", trimmedPath);
+				return results;
+			}
+
+			string baseFolder = GetBaseFolder(baseMode, pathContext, "root");
+			if (!Directory.Exists(baseFolder)) {
+				LogWarning("Include base folder does not exist: {0}", baseFolder);
+				return results;
+			}
+
+			string normalizedPattern = trimmedPath.Replace('\\', '/');
+			var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			foreach (var directory in Directory.GetDirectories(baseFolder, "*", SearchOption.AllDirectories)) {
+				string relativePath;
+				if (!TryGetRelativePathInsideBase(baseFolder, directory, out relativePath)) {
+					continue;
+				}
+
+				if (WildcardMatch(relativePath, normalizedPattern)) {
+					string fullDirectory = Path.GetFullPath(directory);
+					if (seen.Add(fullDirectory)) {
+						results.Add(fullDirectory);
+					}
+				}
+			}
+
+			return results;
 		}
 
 		static bool TryGetRelativePathInsideBase(string baseFolder, string path, out string relativePath) {
@@ -980,44 +1239,39 @@ END OF INSTRUCTIONS -->
 				if (string.IsNullOrWhiteSpace(includePath)) {
 					continue;
 				}
-				
-				string fullPath = ResolvePath(includePath, includePathItem != null ? includePathItem.Base : null, pathContext, "root");
-				
-				if (!Directory.Exists(fullPath)) {
-					LogWarning("Include path does not exist: {0}", fullPath);
-					continue;
-				}
-				
-				var includedFiles = Directory.GetFiles(fullPath, "*.*", SearchOption.AllDirectories);
-				foreach (var file in includedFiles) {
-					stats.ScannedFiles++;
-					if (IsFileExcluded(file, pathContext, config.ExcludePaths)) {
-						stats.ExcludedFiles++;
-						continue;
-					}
-					
-					if (ShouldExcludeByLimits(file, config, stats)) {
-						continue;
-					}
 
-					bool ruleTreeOnly;
-					if (!TryMatchPatterns(file, rootFolder, patternRules, out ruleTreeOnly)) {
-						stats.SkippedByPattern++;
-						continue;
-					}
+				foreach (var fullPath in ResolveIncludeDirectories(includePath, includePathItem != null ? includePathItem.Base : null, pathContext)) {
+					var includedFiles = Directory.GetFiles(fullPath, "*.*", SearchOption.AllDirectories);
+					foreach (var file in includedFiles) {
+						stats.ScannedFiles++;
+						if (IsFileExcluded(file, pathContext, config.ExcludePaths)) {
+							stats.ExcludedFiles++;
+							continue;
+						}
+						
+						if (ShouldExcludeByLimits(file, config, stats)) {
+							continue;
+						}
 
-					if (ShouldSkipByIncremental(file, useIncremental, incrementalCutoff, stats)) {
-						continue;
+						bool ruleTreeOnly;
+						if (!TryMatchPatterns(file, rootFolder, patternRules, out ruleTreeOnly)) {
+							stats.SkippedByPattern++;
+							continue;
+						}
+
+						if (ShouldSkipByIncremental(file, useIncremental, incrementalCutoff, stats)) {
+							continue;
+						}
+						
+						bool treeOnly = includePathItem != null && includePathItem.TreeOnly;
+						treeOnly = treeOnly || ruleTreeOnly;
+						
+						stats.IncludedFiles++;
+						if (treeOnly) {
+							stats.TreeOnlyFiles++;
+						}
+						files.Add(new FileEntry { Path = file, TreeOnly = treeOnly });
 					}
-					
-					bool treeOnly = includePathItem != null && includePathItem.TreeOnly;
-					treeOnly = treeOnly || ruleTreeOnly;
-					
-					stats.IncludedFiles++;
-					if (treeOnly) {
-						stats.TreeOnlyFiles++;
-					}
-					files.Add(new FileEntry { Path = file, TreeOnly = treeOnly });
 				}
 			}
 			
@@ -1394,7 +1648,7 @@ END OF INSTRUCTIONS -->
 				int processed = 0;
 				int lastBucket = -1;
 				
-				using (StreamWriter writer = new StreamWriter(resultFilePath)) {
+				using (StreamWriter writer = new StreamWriter(resultFilePath, false, new UTF8Encoding(true))) {
 					// Write folder structure from filtered files first
 					string folderStructure = GenerateFolderStructureFromFilteredFiles(files, rootFolder);
 					writer.WriteLine(folderStructure);
@@ -1611,19 +1865,45 @@ END OF INSTRUCTIONS -->
 		
 		static string GetRelativePath(string relativeTo, string path) {
 			try {
-				Uri fromUri	= new Uri(relativeTo.EndsWith(Path.DirectorySeparatorChar.ToString()) ? relativeTo : relativeTo + Path.DirectorySeparatorChar);
-				Uri toUri	= new Uri(path);
-				
-				if (fromUri.Scheme != toUri.Scheme) { return path; } // path can't be made relative.
-				
-				Uri relativeUri		= fromUri.MakeRelativeUri(toUri);
-				string relativePath	= Uri.UnescapeDataString(relativeUri.ToString());
-				
-				if (toUri.Scheme.Equals("file", StringComparison.InvariantCultureIgnoreCase)) {
-					relativePath = relativePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+				string fromFullPath = Path.GetFullPath(relativeTo);
+				string toFullPath = Path.GetFullPath(path);
+				string fromRoot = Path.GetPathRoot(fromFullPath);
+				string toRoot = Path.GetPathRoot(toFullPath);
+				if (!string.Equals(fromRoot, toRoot, StringComparison.OrdinalIgnoreCase)) {
+					return path;
 				}
-				
-				return relativePath;
+
+				bool targetIsDirectory = path.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+					|| path.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+					|| Directory.Exists(path);
+
+				string[] fromParts = fromFullPath
+					.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+					.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+				string[] toParts = toFullPath
+					.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+					.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+
+				int commonLength = 0;
+				int maxCommon = Math.Min(fromParts.Length, toParts.Length);
+				while (commonLength < maxCommon &&
+					string.Equals(fromParts[commonLength], toParts[commonLength], StringComparison.OrdinalIgnoreCase)) {
+					commonLength++;
+				}
+
+				var parts = new List<string>();
+				for (int i = commonLength; i < fromParts.Length; i++) {
+					parts.Add("..");
+				}
+				for (int i = commonLength; i < toParts.Length; i++) {
+					parts.Add(toParts[i]);
+				}
+
+				if (parts.Count == 0) {
+					return targetIsDirectory ? "." : Path.GetFileName(toFullPath);
+				}
+
+				return string.Join(Path.DirectorySeparatorChar.ToString(), parts.ToArray());
 			}
 			catch (Exception ex) {
 				LogError("Error getting relative path: {0}", ex.Message);
@@ -1813,7 +2093,7 @@ END OF INSTRUCTIONS -->
 		
 		// >>>>> MAKE TREE section >>>>>
 		static TreeNode BuildTree(List<FileEntry> filteredFiles, string rootFolder) {
-			var rootNode = new TreeNode { Name = Path.GetFileName(rootFolder), IsFile = false };
+			var rootNode = new TreeNode { Name = ".", IsFile = false };
 			
 			foreach (var entry in filteredFiles) {
 				if (entry == null || string.IsNullOrWhiteSpace(entry.Path)) {
@@ -1843,7 +2123,7 @@ END OF INSTRUCTIONS -->
 		static void TraverseTree(TreeNode node, string indent, List<string> lines, bool isLast, bool isRoot) {
 			if (node.IsFile) {
 				string suffix = node.IsSkipped ? " (skipped)" : string.Empty;
-				lines.Add(indent + (isLast ? "ÀÄÄ " : "ÃÄÄ ") + node.Name + suffix);
+				lines.Add(indent + (isLast ? "└── " : "├── ") + node.Name + suffix);
 				return;
 			}
 			
@@ -1867,7 +2147,7 @@ END OF INSTRUCTIONS -->
 			else {
 				// Add current directory
 				if (isRoot) {
-					lines.Add(node.Name + "./");
+					lines.Add("./");
 				}
 				else {
 					lines.Add(indent + (isLast ? "└── " : "├── ") + node.Name + "/");
@@ -1893,7 +2173,7 @@ END OF INSTRUCTIONS -->
 					bool childIsLast = (index == totalChildren);
 					var subIndent = indent + (isLast ? "    " : "│   ");
 					string suffix = child.IsSkipped ? " (skipped)" : string.Empty;
-					lines.Add(subIndent + (childIsLast ? "ÀÄÄ " : "ÃÄÄ ") + child.Name + suffix);
+					lines.Add(subIndent + (childIsLast ? "└── " : "├── ") + child.Name + suffix);
 				}
 			}
 		}
